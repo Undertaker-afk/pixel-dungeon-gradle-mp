@@ -6,14 +6,14 @@ Look below for compilation instructions
 
 Traditional roguelike game with pixel-art graphics and simple interface.
 
-Pixel Dungeon on Google Play:
-https://play.google.com/store/apps/details?id=com.watabou.pixeldungeon
+Pixel Dungeon on Itch.IO:
+https://watabou.itch.io/pixel-dungeon
 
 Original Pixel Dungeon Source Code:
 https://GitHub.com/watabou/pixel-dungeon
 
-Official web-site:
-http://pixeldungeon.watabou.ru/
+Watabou's Other Games:
+https://watabou.itch.io/
 
 Developer's blog:
 http://pixeldungeon.tumblr.com/
