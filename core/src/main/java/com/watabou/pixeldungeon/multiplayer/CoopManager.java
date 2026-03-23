@@ -174,6 +174,62 @@ public class CoopManager {
 		}
 	}
 
+	public void publishItemPickup( String itemName, int cell ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.itemPickup( playerId, Dungeon.depth, itemName, cell ) );
+	}
+
+	public void publishItemDrop( String itemName, int cell ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.itemDrop( playerId, Dungeon.depth, itemName, cell ) );
+	}
+
+	public void publishItemUse( String itemName ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.itemUse( playerId, Dungeon.depth, itemName ) );
+	}
+
+	public void publishDoorUnlock( int cell ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.doorUnlock( playerId, Dungeon.depth, cell ) );
+	}
+
+	public void publishDescend( int cell ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.descend( playerId, Dungeon.depth, cell ) );
+	}
+
+	public void publishAscend( int cell ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.ascend( playerId, Dungeon.depth, cell ) );
+	}
+
+	public void publishDeath( String cause ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.death( playerId, Dungeon.depth, cause ) );
+	}
+
+	public void publishBuff( String buffName, String operation ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.buff( playerId, Dungeon.depth, buffName, operation ) );
+	}
+
 	public void publishDespawn() {
 		if (!connected || Dungeon.depth <= 0) {
 			return;
@@ -231,6 +287,11 @@ public class CoopManager {
 			return;
 		}
 		if (event.depth != Dungeon.depth) {
+			return;
+		}
+
+		if (event.kind == CoopEvent.Kind.UNKNOWN) {
+			GLog.w( "[Co-op] Ignoring unknown event kind from %s: %s", event.actorId, event.kindRaw );
 			return;
 		}
 
@@ -630,7 +691,7 @@ public class CoopManager {
 			return;
 		}
 		try {
-			JSONObject payload = new JSONObject( event.payload );
+			JSONObject payload = event.payload;
 			String actorId = payload.optString( "actorId", null );
 			RemoteHero remoteHero = ensureRemoteHero( actorId );
 			if (remoteHero == null) {

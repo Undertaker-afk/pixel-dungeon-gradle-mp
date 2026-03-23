@@ -38,6 +38,7 @@ import com.watabou.pixeldungeon.items.wands.Wand;
 import com.watabou.pixeldungeon.items.weapon.Weapon;
 import com.watabou.pixeldungeon.items.weapon.missiles.MissileWeapon;
 import com.watabou.pixeldungeon.mechanics.Ballistica;
+import com.watabou.pixeldungeon.multiplayer.CoopManager;
 import com.watabou.pixeldungeon.scenes.CellSelector;
 import com.watabou.pixeldungeon.scenes.GameScene;
 import com.watabou.pixeldungeon.sprites.CharSprite;
@@ -119,7 +120,8 @@ public class Item implements Bundlable {
 	
 	public void doDrop( Hero hero ) {	
 		hero.spendAndNext( TIME_TO_DROP );			
-		Dungeon.level.drop( detachAll( hero.belongings.backpack ), hero.pos ).sprite.drop( hero.pos );	
+		Dungeon.level.drop( detachAll( hero.belongings.backpack ), hero.pos ).sprite.drop( hero.pos );
+		CoopManager.instance().publishItemDrop( name(), hero.pos );	
 	}
 	
 	public void doThrow( Hero hero ) {
@@ -139,6 +141,8 @@ public class Item implements Bundlable {
 			
 			doThrow( hero );
 			
+		} else {
+			CoopManager.instance().publishItemUse( name() );
 		}
 	}
 	
