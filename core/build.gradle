@@ -14,6 +14,8 @@ android {
         //noinspection MinSdkTooLow
         minSdkVersion appAndroidMinSDK
         targetSdkVersion appAndroidTargetSDK
+
+        multiDexEnabled true
     }
 
     // packagingOptions must be here (directly under android)
@@ -37,4 +39,5 @@ dependencies {
     implementation 'org.java-websocket:Java-WebSocket:1.5.6'
     implementation 'org.ngengine:nostr4j:0.2.5'
     implementation 'io.libp2p:jvm-libp2p:1.2.2-RELEASE'
+    implementation 'androidx.multidex:multidex:2.0.1'
 }

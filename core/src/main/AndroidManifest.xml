@@ -15,6 +15,7 @@
 		<!--android:xlargeScreens="true"-->
 
 	<application
+		android:name="androidx.multidex.MultiDexApplication"
 		android:icon="@drawable/ic_launcher"
 		android:label="${appName}"
 		android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
