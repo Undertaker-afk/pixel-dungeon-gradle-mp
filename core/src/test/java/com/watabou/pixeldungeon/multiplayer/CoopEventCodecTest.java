@@ -103,4 +103,26 @@ public class CoopEventCodecTest {
 		bad.put( "payload", new JSONObject() );
 		CoopEventCodec.fromJson( bad.toString() );
 	}
+
+	@Test
+	public void joinRequestRoundTripKeepsTokenAndJoinKey() {
+		CoopEvent event = CoopEvent.joinRequest( "peer-a", 1, "join-123", "token-xyz", 4, false );
+		CoopEvent decoded = CoopEventCodec.fromJson( CoopEventCodec.toJson( event ) );
+
+		assertEquals( CoopEvent.Kind.JOIN_REQUEST, decoded.kind );
+		assertEquals( "join-123", decoded.payload.optString( "joinKey" ) );
+		assertEquals( "token-xyz", decoded.payload.optString( "sessionToken" ) );
+		assertEquals( 4, decoded.payload.optInt( "clientDepth" ) );
+	}
+
+	@Test
+	public void joinResultRoundTripKeepsTargetAndStatus() {
+		CoopEvent event = CoopEvent.joinResult( "peer-host", 4, "peer-a", true, "rejoined", "token-xyz" );
+		CoopEvent decoded = CoopEventCodec.fromJson( CoopEventCodec.toJson( event ) );
+
+		assertEquals( CoopEvent.Kind.JOIN_RESULT, decoded.kind );
+		assertEquals( "peer-a", decoded.payload.optString( "targetPlayerId" ) );
+		assertTrue( decoded.payload.optBoolean( "accepted", false ) );
+		assertEquals( "rejoined", decoded.payload.optString( "reason" ) );
+	}
 }

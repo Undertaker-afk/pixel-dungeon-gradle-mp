@@ -166,6 +166,25 @@ public final class CoopEventCodec {
 		case SNAPSHOT_REQUEST:
 			requireString( event.payload, "reason" );
 			break;
+		case JOIN_REQUEST:
+			requireString( event.payload, "joinKey" );
+			if (!event.payload.has( "sessionToken" )) {
+				throw new IllegalArgumentException( "payload.sessionToken is required" );
+			}
+			requireInt( event.payload, "clientDepth" );
+			break;
+		case JOIN_RESULT:
+			requireString( event.payload, "targetPlayerId" );
+			if (!event.payload.has( "accepted" )) {
+				throw new IllegalArgumentException( "payload.accepted is required" );
+			}
+			if (!event.payload.has( "reason" )) {
+				throw new IllegalArgumentException( "payload.reason is required" );
+			}
+			if (!event.payload.has( "sessionToken" )) {
+				throw new IllegalArgumentException( "payload.sessionToken is required" );
+			}
+			break;
 		case DESPAWN:
 		default:
 			break;

@@ -41,6 +41,9 @@ enum Preferences {
 	public static final String KEY_COOP_ROOM		= "coop_room";
 	public static final String KEY_COOP_ROLE		= "coop_role";
 	public static final String KEY_COOP_SIMULATION_POLICY	= "coop_simulation_policy";
+	public static final String KEY_COOP_PLAYER_UUID	= "coop_player_uuid";
+	public static final String KEY_COOP_SESSION_TOKEN	= "coop_session_token";
+	public static final String KEY_COOP_SESSION_ROOM	= "coop_session_room";
 	
 	private SharedPreferences prefs;
 	

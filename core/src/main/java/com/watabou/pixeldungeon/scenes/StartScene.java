@@ -84,6 +84,7 @@ public class StartScene extends PixelScene {
 	private static final String TXT_COOP_OFF = "Disable co-op";
 	private static final String TXT_COOP_ROLE = "Switch role";
 	private static final String TXT_COOP_SERVERS = "Browse servers";
+	private static final String TXT_COOP_REJOIN = "Rejoin session";
 	private static final String TXT_COOP_ADMIN = "Host admin";
 	private static final String TXT_COOP_OK = "Back";
 	
@@ -329,10 +330,14 @@ public class StartScene extends PixelScene {
 	private void showCoopOptions() {
 		final boolean enabled = PixelDungeon.coopEnabled();
 		final CoopRole role = PixelDungeon.coopRole();
-		add( new WndOptions( TXT_COOP_TITLE, TXT_COOP_MESSAGE,
+		final String reconnectStatus = CoopManager.instance().reconnectStatus();
+		add( new WndOptions( TXT_COOP_TITLE, TXT_COOP_MESSAGE + "\nReconnect: " + reconnectStatus,
 			enabled ? TXT_COOP_OFF : TXT_COOP_ON,
 			Utils.format( "%s (%s)", TXT_COOP_ROLE, role.name() ),
 			Utils.format( "%s (%s)", TXT_COOP_SERVERS, PixelDungeon.coopRoom() ),
+			CoopManager.instance().canAttemptRejoin()
+				? Utils.format( "%s (%s)", TXT_COOP_REJOIN, PixelDungeon.coopSessionRoom() )
+				: TXT_COOP_REJOIN + " (unavailable)",
 			role == CoopRole.DUNGEON_MASTER ? TXT_COOP_ADMIN : "Host admin (DM only)",
 			TXT_COOP_OK ) {
 			@Override
@@ -347,6 +352,10 @@ public class StartScene extends PixelScene {
 				} else if (index == 2) {
 					showServerBrowser();
 				} else if (index == 3) {
+					if (!CoopManager.instance().rejoinLastSession()) {
+						StartScene.this.add( new WndMessage( "No saved session token for rejoin yet." ) );
+					}
+				} else if (index == 4) {
 					showHostAdmin();
 				}
 			}
@@ -397,7 +406,12 @@ public class StartScene extends PixelScene {
 		for (int i = 0; i < roomIds.length; i++) {
 			CoopLobby lobby = lobbies.get( i );
 			roomIds[i] = lobby.roomId;
-			options[i] = Utils.format( "%s (%d/%d)", lobby.roomId, lobby.playerCount, lobby.maxPlayers );
+			options[i] = Utils.format( "%s (%d/%d) floor:%d %s",
+				lobby.roomId,
+				lobby.playerCount,
+				lobby.maxPlayers,
+				Integer.valueOf( lobby.floor ),
+				lobby.reconnectSupported ? "rejoin" : "no-rejoin" );
 		}
 		options[options.length - 1] = "Back";
 		add( new WndOptions( "Server browser",

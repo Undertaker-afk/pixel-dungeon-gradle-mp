@@ -92,6 +92,9 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 			PeerEndpoint endpoint = lobby == null ? null : lobby.hostEndpoint;
 			payload.put( "relayRoutingKey", endpoint == null ? playerId : endpoint.relayRoutingKey );
 			payload.put( "relayUrl", endpoint == null ? RELAY_URL : endpoint.relayUrl );
+			payload.put( "joinKey", lobby == null ? "" : lobby.joinKey );
+			payload.put( "reconnectSupported", lobby == null || lobby.reconnectSupported );
+			payload.put( "floor", lobby == null ? 0 : Math.max( 0, lobby.floor ) );
 			if (endpoint != null && endpoint.hasUdpEndpoint()) {
 				payload.put( "udpHost", endpoint.udpHost );
 				payload.put( "udpPort", endpoint.udpPort );
@@ -188,7 +191,10 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 				payload.optBoolean( "acceptingPlayers", true ),
 				System.currentTimeMillis(),
 				payload.optString( "unlockedClasses", "WARRIOR" ),
-				peerEndpoint );
+				peerEndpoint,
+				payload.optString( "joinKey", "" ),
+				payload.optBoolean( "reconnectSupported", true ),
+				Math.max( 0, payload.optInt( "floor", 0 ) ) );
 			lobbies.put( discoveredRoomId + ":" + discoveredPeerId, lobby );
 			listener.onPeer( peerEndpoint );
 		} catch (JSONException e) {
