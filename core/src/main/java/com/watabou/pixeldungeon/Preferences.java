@@ -39,6 +39,7 @@ enum Preferences {
 	public static final String KEY_BRIGHTNESS	= "brightness";
 	public static final String KEY_COOP_ENABLED	= "coop_enabled";
 	public static final String KEY_COOP_ROOM		= "coop_room";
+	public static final String KEY_COOP_ROLE		= "coop_role";
 	
 	private SharedPreferences prefs;
 	

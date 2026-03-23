@@ -29,6 +29,7 @@ import android.view.View;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.audio.Music;
 import com.watabou.noosa.audio.Sample;
+import com.watabou.pixeldungeon.multiplayer.CoopRole;
 import com.watabou.pixeldungeon.scenes.GameScene;
 import com.watabou.pixeldungeon.scenes.PixelScene;
 import com.watabou.pixeldungeon.scenes.TitleScene;
@@ -359,6 +360,19 @@ public class PixelDungeon extends Game {
 	public static String coopRoom() {
 		return Preferences.INSTANCE.getString( Preferences.KEY_COOP_ROOM, "public-alpha" );
 	}
+
+	public static void coopRole( CoopRole role ) {
+		Preferences.INSTANCE.put( Preferences.KEY_COOP_ROLE, role == null ? CoopRole.PLAYER.name() : role.name() );
+	}
+
+	public static CoopRole coopRole() {
+		try {
+			return CoopRole.valueOf( Preferences.INSTANCE.getString( Preferences.KEY_COOP_ROLE, CoopRole.PLAYER.name() ) );
+		} catch (Exception ignored) {
+			return CoopRole.PLAYER;
+		}
+	}
+
 	public static void intro( boolean value ) {
 		Preferences.INSTANCE.put( Preferences.KEY_INTRO, value );
 	}
