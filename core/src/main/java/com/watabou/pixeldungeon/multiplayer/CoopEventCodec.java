@@ -22,6 +22,9 @@ public final class CoopEventCodec {
 		if (event.levelHash != null) {
 			json.put( "levelHash", event.levelHash );
 		}
+		if (event.payload != null) {
+			json.put( "payload", event.payload );
+		}
 		json.put( "sentAtMs", event.sentAtMs );
 		return json.toString();
 	}
@@ -36,6 +39,7 @@ public final class CoopEventCodec {
 			json.optInt( "to", -1 ),
 			json.has( "levelSeed" ) ? Long.valueOf( json.getLong( "levelSeed" ) ) : null,
 			json.optString( "levelHash", null ),
+			json.optString( "payload", null ),
 			json.optLong( "sentAtMs", System.currentTimeMillis() ) );
 	}
 

@@ -1,6 +1,7 @@
 package com.watabou.pixeldungeon.coop.gameplay;
 
 import com.watabou.pixeldungeon.actors.Char;
+import com.watabou.pixeldungeon.multiplayer.CoopManager;
 
 public class RemoteHero extends Char {
 
@@ -18,12 +19,14 @@ public class RemoteHero extends Char {
 		this.HT = 1;
 		this.HP = 1;
 		this.hpSnapshot = this.HP;
-		diactivate();
 	}
 
 	@Override
 	protected boolean act() {
-		return false;
+		CoopManager.instance().resolveRemoteHeroTurn( this );
+		spend( TICK );
+		next();
+		return true;
 	}
 
 	public void snapshotPosition( int newPos ) {
