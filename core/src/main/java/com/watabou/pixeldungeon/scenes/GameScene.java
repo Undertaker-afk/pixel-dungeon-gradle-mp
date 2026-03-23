@@ -38,6 +38,8 @@ import com.watabou.pixeldungeon.Statistics;
 import com.watabou.pixeldungeon.actors.Actor;
 import com.watabou.pixeldungeon.actors.blobs.Blob;
 import com.watabou.pixeldungeon.actors.mobs.Mob;
+import com.watabou.pixeldungeon.coop.gameplay.RemoteHero;
+import com.watabou.pixeldungeon.coop.gameplay.RemoteHeroSprite;
 import com.watabou.pixeldungeon.effects.BannerSprites;
 import com.watabou.pixeldungeon.effects.BlobEmitter;
 import com.watabou.pixeldungeon.effects.EmoIcon;
@@ -415,6 +417,22 @@ public class GameScene extends PixelScene {
 		mobs.add( sprite );
 		sprite.link( mob );
 	}
+
+	private void addRemoteHeroSprite( RemoteHero remoteHero ) {
+		RemoteHeroSprite sprite = new RemoteHeroSprite();
+		sprite.visible = Dungeon.visible[remoteHero.pos];
+		mobs.add( sprite );
+		sprite.link( remoteHero );
+	}
+
+	private void removeRemoteHeroSprite( RemoteHero remoteHero ) {
+		if (remoteHero == null || remoteHero.sprite == null) {
+			return;
+		}
+		remoteHero.sprite.killAndErase();
+		mobs.erase( remoteHero.sprite );
+		remoteHero.sprite = null;
+	}
 	
 	private void prompt( String text ) {
 		
@@ -482,6 +500,23 @@ public class GameScene extends PixelScene {
 		Actor.addDelayed( mob, delay );
 		Actor.occupyCell( mob );
 		scene.addMobSprite( mob );
+	}
+
+	public static void addRemoteHero( RemoteHero remoteHero ) {
+		if (scene == null || remoteHero == null) {
+			return;
+		}
+		Actor.add( remoteHero );
+		Actor.occupyCell( remoteHero );
+		scene.addRemoteHeroSprite( remoteHero );
+	}
+
+	public static void removeRemoteHero( RemoteHero remoteHero ) {
+		if (scene == null || remoteHero == null) {
+			return;
+		}
+		remoteHero.destroy();
+		scene.removeRemoteHeroSprite( remoteHero );
 	}
 	
 	public static void add( EmoIcon icon ) {

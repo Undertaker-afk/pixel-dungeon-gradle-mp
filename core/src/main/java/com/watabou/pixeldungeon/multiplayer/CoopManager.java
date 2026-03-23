@@ -12,10 +12,15 @@ import java.util.zip.CRC32;
 
 import com.watabou.pixeldungeon.Dungeon;
 import com.watabou.pixeldungeon.PixelDungeon;
+import com.watabou.pixeldungeon.actors.Actor;
+import com.watabou.pixeldungeon.actors.Char;
 import com.watabou.pixeldungeon.actors.hero.HeroClass;
+import com.watabou.pixeldungeon.coop.gameplay.RemoteHero;
 import com.watabou.pixeldungeon.Badges;
 import com.watabou.pixeldungeon.levels.Level;
 import com.watabou.pixeldungeon.levels.Room;
+import com.watabou.pixeldungeon.scenes.GameScene;
+import com.watabou.pixeldungeon.sprites.CharSprite;
 import com.watabou.pixeldungeon.utils.GLog;
 import com.watabou.utils.Random;
 
@@ -39,6 +44,7 @@ public class CoopManager {
 	private final Object levelSyncLock = new Object();
 	private final Map<Integer, Long> levelSeedByDepth = new HashMap<Integer, Long>();
 	private final Map<Integer, String> levelHashByDepth = new HashMap<Integer, String>();
+	private final Map<String, RemoteHero> remoteHeroesByPeerId = new HashMap<String, RemoteHero>();
 	private long sessionSeedBase;
 
 	private CoopManager() {
@@ -70,6 +76,7 @@ public class CoopManager {
 				realtimeChannel.addPeer( peerEndpoint );
 				if (peerIds.add( peerId )) {
 					GLog.i( "[Co-op] peer connected: %s", peerId );
+					ensureRemoteHero( peerId );
 					resendLevelSyncToLateJoiner( peerId );
 				}
 			}
@@ -84,8 +91,10 @@ public class CoopManager {
 		if (!connected) {
 			return;
 		}
+		publishDespawn();
 		peerDiscovery.stop();
 		realtimeChannel.disconnect();
+		clearRemoteHeroes();
 		peerIds.clear();
 		bannedPeerIds.clear();
 		synchronized (levelSyncLock) {
@@ -152,6 +161,14 @@ public class CoopManager {
 		realtimeChannel.send( CoopEvent.attack( playerId, Dungeon.depth, fromCell, toCell ) );
 	}
 
+	public void publishDespawn() {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.despawn( playerId, Dungeon.depth ) );
+		GLog.i( "[Co-op][RemoteHero] local despawn published actor=%s depth=%d", playerId, Integer.valueOf( Dungeon.depth ) );
+	}
+
 	public void prepareLevelSeed( int depth ) {
 		if (!connected || !PixelDungeon.coopEnabled() || depth <= 0) {
 			return;
@@ -192,14 +209,151 @@ public class CoopManager {
 			handleLevelHash( event );
 			return;
 		}
+		if (event.kind == CoopEvent.Kind.DESPAWN) {
+			despawnRemoteHero( event.actorId, "remote-event" );
+			return;
+		}
 		if (event.depth != Dungeon.depth) {
 			return;
 		}
-		if (event.kind == CoopEvent.Kind.MOVE) {
-			GLog.i( "[Co-op] %s moved %d -> %d", event.actorId, event.fromCell, event.toCell );
-		} else if (event.kind == CoopEvent.Kind.ATTACK) {
-			GLog.i( "[Co-op] %s attacked toward %d", event.actorId, event.toCell );
+
+		RemoteHero remoteHero = ensureRemoteHero( event.actorId );
+		if (remoteHero == null) {
+			return;
 		}
+
+		if (event.kind == CoopEvent.Kind.MOVE) {
+			applyRemoteMove( remoteHero, event.fromCell, event.toCell );
+		} else if (event.kind == CoopEvent.Kind.ATTACK) {
+			applyRemoteAttack( remoteHero, event.fromCell, event.toCell );
+		}
+	}
+
+	private RemoteHero ensureRemoteHero( String peerId ) {
+		if (peerId == null || peerId.length() == 0 || Dungeon.level == null) {
+			return null;
+		}
+		RemoteHero remoteHero = remoteHeroesByPeerId.get( peerId );
+		if (remoteHero != null) {
+			return remoteHero;
+		}
+		int spawnCell = remoteSpawnCell();
+		remoteHero = new RemoteHero( peerId, peerId, spawnCell );
+		remoteHeroesByPeerId.put( peerId, remoteHero );
+		GameScene.addRemoteHero( remoteHero );
+		if (remoteHero.sprite != null) {
+			remoteHero.sprite.showStatus( CharSprite.NEUTRAL, "SPAWN" );
+		}
+		GLog.i( "[Co-op][RemoteHero] spawn peer=%s cell=%d", peerId, Integer.valueOf( spawnCell ) );
+		return remoteHero;
+	}
+
+	private int remoteSpawnCell() {
+		if (Dungeon.level == null) {
+			return 0;
+		}
+		if (isCellAvailable( Dungeon.level.entrance )) {
+			return Dungeon.level.entrance;
+		}
+		if (Dungeon.hero != null && isCellAvailable( Dungeon.hero.pos )) {
+			return Dungeon.hero.pos;
+		}
+		for (int i = 0; i < Level.LENGTH; i++) {
+			if (isCellAvailable( i )) {
+				return i;
+			}
+		}
+		return Dungeon.level.entrance;
+	}
+
+	private void applyRemoteMove( RemoteHero remoteHero, int fromCell, int toCell ) {
+		if (remoteHero == null) {
+			return;
+		}
+		int safeFrom = remoteHero.pos;
+		if (fromCell >= 0 && fromCell < Level.LENGTH) {
+			safeFrom = fromCell;
+		}
+		if (!isValidMovement( remoteHero, safeFrom, toCell )) {
+			GLog.w( "[Co-op][RemoteHero] rejected move peer=%s %d->%d", remoteHero.peerId, Integer.valueOf( safeFrom ), Integer.valueOf( toCell ) );
+			return;
+		}
+		Actor.freeCell( remoteHero.pos );
+		remoteHero.snapshotPosition( toCell );
+		Actor.occupyCell( remoteHero );
+		if (remoteHero.sprite != null) {
+			remoteHero.sprite.move( safeFrom, toCell );
+			remoteHero.sprite.showStatus( CharSprite.NEUTRAL, "MOVE" );
+		}
+		GLog.i( "[Co-op][RemoteHero] move peer=%s %d->%d", remoteHero.peerId, Integer.valueOf( safeFrom ), Integer.valueOf( toCell ) );
+	}
+
+	private void applyRemoteAttack( RemoteHero remoteHero, int fromCell, int toCell ) {
+		if (remoteHero == null || toCell < 0 || toCell >= Level.LENGTH) {
+			return;
+		}
+		if (fromCell >= 0 && fromCell < Level.LENGTH && remoteHero.pos != fromCell) {
+			if (isCellAvailableForRemote( remoteHero, fromCell )) {
+				Actor.freeCell( remoteHero.pos );
+				remoteHero.snapshotPosition( fromCell );
+				Actor.occupyCell( remoteHero );
+				if (remoteHero.sprite != null) {
+					remoteHero.sprite.place( fromCell );
+				}
+			}
+		}
+		if (remoteHero.sprite != null) {
+			remoteHero.sprite.attack( toCell );
+			remoteHero.sprite.showStatus( CharSprite.WARNING, "ATK" );
+		}
+		GLog.i( "[Co-op][RemoteHero] attack peer=%s from=%d to=%d", remoteHero.peerId, Integer.valueOf( remoteHero.pos ), Integer.valueOf( toCell ) );
+	}
+
+	private boolean isValidMovement( RemoteHero remoteHero, int fromCell, int toCell ) {
+		if (toCell < 0 || toCell >= Level.LENGTH || fromCell < 0 || fromCell >= Level.LENGTH) {
+			return false;
+		}
+		if (!Level.passable[toCell]) {
+			return false;
+		}
+		if (!Level.adjacent( fromCell, toCell )) {
+			return false;
+		}
+		return isCellAvailableForRemote( remoteHero, toCell );
+	}
+
+	private boolean isCellAvailable( int cell ) {
+		if (cell < 0 || cell >= Level.LENGTH) {
+			return false;
+		}
+		if (!Level.passable[cell]) {
+			return false;
+		}
+		return Actor.findChar( cell ) == null;
+	}
+
+	private boolean isCellAvailableForRemote( RemoteHero remoteHero, int cell ) {
+		if (cell < 0 || cell >= Level.LENGTH || !Level.passable[cell]) {
+			return false;
+		}
+		Char occupant = Actor.findChar( cell );
+		return occupant == null || occupant == remoteHero;
+	}
+
+	private void despawnRemoteHero( String peerId, String reason ) {
+		RemoteHero remoteHero = remoteHeroesByPeerId.remove( peerId );
+		if (remoteHero == null) {
+			return;
+		}
+		GameScene.removeRemoteHero( remoteHero );
+		GLog.i( "[Co-op][RemoteHero] despawn peer=%s reason=%s", peerId, reason );
+	}
+
+	private void clearRemoteHeroes() {
+		for (String peerId : new ArrayList<String>( remoteHeroesByPeerId.keySet() )) {
+			despawnRemoteHero( peerId, "disconnect" );
+		}
+		remoteHeroesByPeerId.clear();
 	}
 
 	private boolean isHost() {

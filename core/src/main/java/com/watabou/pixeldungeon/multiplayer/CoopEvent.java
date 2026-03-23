@@ -6,7 +6,8 @@ public class CoopEvent {
 		MOVE,
 		ATTACK,
 		LEVEL_SYNC,
-		LEVEL_HASH
+		LEVEL_HASH,
+		DESPAWN
 	}
 
 	public final Kind kind;
@@ -43,5 +44,9 @@ public class CoopEvent {
 
 	public static CoopEvent levelHash( String actorId, int depth, String levelHash ) {
 		return new CoopEvent( Kind.LEVEL_HASH, actorId, depth, -1, -1, null, levelHash, System.currentTimeMillis() );
+	}
+
+	public static CoopEvent despawn( String actorId, int depth ) {
+		return new CoopEvent( Kind.DESPAWN, actorId, depth, -1, -1, null, null, System.currentTimeMillis() );
 	}
 }

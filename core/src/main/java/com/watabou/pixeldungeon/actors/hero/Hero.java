@@ -1156,6 +1156,7 @@ public class Hero extends Char {
 		}
 		
 		Actor.fixTime();
+		CoopManager.instance().publishDespawn();
 		super.die( cause );
 		
 		Ankh ankh = (Ankh)belongings.getItem( Ankh.class );
