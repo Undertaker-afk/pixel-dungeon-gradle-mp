@@ -14,6 +14,15 @@ android {
         //noinspection MinSdkTooLow
         minSdkVersion appAndroidMinSDK
         targetSdkVersion appAndroidTargetSDK
+        packagingOptions {
+            resources {
+            // Option A (recommended): exclude the file from the final APK/AAR
+                excludes += ['META-INF/INDEX.LIST']
+
+            // Option B (alternative): keep the first occurrence instead of failing
+            // pickFirsts += ['META-INF/INDEX.LIST']
+            }
+        }
     }
 
 }
