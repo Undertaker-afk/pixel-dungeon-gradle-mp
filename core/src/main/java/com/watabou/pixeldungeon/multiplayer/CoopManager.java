@@ -13,15 +13,20 @@ import java.util.Map;
 import java.util.Set;
 import java.util.zip.CRC32;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import com.watabou.pixeldungeon.Dungeon;
 import com.watabou.pixeldungeon.PixelDungeon;
 import com.watabou.pixeldungeon.actors.Actor;
 import com.watabou.pixeldungeon.actors.Char;
+import com.watabou.pixeldungeon.actors.blobs.Blob;
 import com.watabou.pixeldungeon.actors.hero.HeroClass;
+import com.watabou.pixeldungeon.actors.mobs.Mob;
 import com.watabou.pixeldungeon.coop.gameplay.RemoteHero;
 import com.watabou.pixeldungeon.Badges;
+import com.watabou.pixeldungeon.items.Heap;
+import com.watabou.pixeldungeon.items.Item;
 import com.watabou.pixeldungeon.levels.Level;
 import com.watabou.pixeldungeon.levels.Room;
 import com.watabou.pixeldungeon.levels.Terrain;
@@ -36,6 +41,9 @@ public class CoopManager {
 	private static final long LEVEL_SYNC_WAIT_MS = 5000L;
 	private static final long INTENT_MIN_INTERVAL_MS = 80L;
 	private static final int MAX_REJECT_LOG_ENTRIES = 64;
+	private static final long WORLD_DIFF_INTERVAL_MS = 200L;
+	private static final int FULL_SYNC_INTERVAL_TURNS = 12;
+	private static final int HASH_INTERVAL_TURNS = 6;
 
 	public static CoopManager instance() {
 		return INSTANCE;
@@ -57,8 +65,14 @@ public class CoopManager {
 	private final Map<String, Long> lastAcceptedIntentMsByPeerId = new HashMap<String, Long>();
 	private final Map<String, Set<String>> inventoryByPeerId = new HashMap<String, Set<String>>();
 	private final Deque<String> rejectedIntentLog = new LinkedList<String>();
+	private final Map<Integer, String> stableMobIdByActorId = new HashMap<Integer, String>();
+	private final Map<String, Integer> localMobActorIdByStableId = new HashMap<String, Integer>();
+	private final Map<String, Integer> remoteHeapCellByStableId = new HashMap<String, Integer>();
 	private String authoritativePeerId;
 	private long sessionSeedBase;
+	private long lastWorldDiffSentAtMs;
+	private int turnsSinceFullStateSync;
+	private int turnsSinceHashBroadcast;
 
 	private CoopManager() {
 	}
@@ -119,7 +133,13 @@ public class CoopManager {
 		lastAcceptedIntentMsByPeerId.clear();
 		inventoryByPeerId.clear();
 		rejectedIntentLog.clear();
+		stableMobIdByActorId.clear();
+		localMobActorIdByStableId.clear();
+		remoteHeapCellByStableId.clear();
 		authoritativePeerId = null;
+		lastWorldDiffSentAtMs = 0L;
+		turnsSinceFullStateSync = 0;
+		turnsSinceHashBroadcast = 0;
 		synchronized (levelSyncLock) {
 			levelSeedByDepth.clear();
 			levelHashByDepth.clear();
@@ -177,6 +197,7 @@ public class CoopManager {
 		realtimeChannel.send( CoopEvent.move( playerId, Dungeon.depth, fromCell, toCell ) );
 		if (isHost()) {
 			broadcastTurnOutcome( playerId, CoopEvent.Kind.MOVE, fromCell, toCell, true, null );
+			onResolvedAuthoritativeAction();
 		}
 	}
 
@@ -187,6 +208,7 @@ public class CoopManager {
 		realtimeChannel.send( CoopEvent.attack( playerId, Dungeon.depth, fromCell, toCell ) );
 		if (isHost()) {
 			broadcastTurnOutcome( playerId, CoopEvent.Kind.ATTACK, fromCell, toCell, true, null );
+			onResolvedAuthoritativeAction();
 		}
 	}
 
@@ -283,7 +305,7 @@ public class CoopManager {
 		if (!connected || !PixelDungeon.coopEnabled() || depth <= 0 || level == null) {
 			return;
 		}
-		String hash = computeLevelHash( level );
+		String hash = computeFloorChecksum();
 		synchronized (levelSyncLock) {
 			levelHashByDepth.put( Integer.valueOf( depth ), hash );
 		}
@@ -320,6 +342,21 @@ public class CoopManager {
 				return;
 			}
 			applyAuthoritativeState( event );
+			return;
+		}
+		if (event.kind == CoopEvent.Kind.WORLD_DIFF) {
+			if (!isEventFromAuthoritativeHost( event )) {
+				rejectStateMutation( event, "WORLD_DIFF is only accepted from authoritative host" );
+				return;
+			}
+			applyWorldDiff( event );
+			return;
+		}
+		if (event.kind == CoopEvent.Kind.SNAPSHOT_REQUEST) {
+			if (!isHost()) {
+				return;
+			}
+			sendFullStateSync( "snapshot-request:" + event.actorId + ":" + event.payload.optString( "reason", "unspecified" ) );
 			return;
 		}
 		if (event.kind == CoopEvent.Kind.DESPAWN) {
@@ -375,6 +412,20 @@ public class CoopManager {
 			return Dungeon.hero.ready && !hasPendingRemoteIntents();
 		}
 		return Dungeon.hero.ready;
+	}
+
+	public void onSimulationTick() {
+		if (!connected || !PixelDungeon.coopEnabled() || Dungeon.depth <= 0) {
+			return;
+		}
+		if (!isHost()) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		if (now - lastWorldDiffSentAtMs >= WORLD_DIFF_INTERVAL_MS) {
+			sendWorldDiff();
+			lastWorldDiffSentAtMs = now;
+		}
 	}
 
 	public boolean resolveRemoteHeroTurn( RemoteHero remoteHero ) {
@@ -447,6 +498,7 @@ public class CoopManager {
 			applyInventoryMutation( remoteHero.peerId, intent );
 			lastAcceptedIntentMsByPeerId.put( remoteHero.peerId, Long.valueOf( System.currentTimeMillis() ) );
 			broadcastTurnOutcome( remoteHero.peerId, intent.kind, intent.fromCell, intent.toCell, true, null );
+			onResolvedAuthoritativeAction();
 		}
 		return true;
 	}
@@ -562,6 +614,14 @@ public class CoopManager {
 		return occupant == null || occupant == remoteHero;
 	}
 
+	private boolean isCellAvailableForRemote( Mob mob, int cell ) {
+		if (cell < 0 || cell >= Level.LENGTH || !Level.passable[cell]) {
+			return false;
+		}
+		Char occupant = Actor.findChar( cell );
+		return occupant == null || occupant == mob;
+	}
+
 	private void despawnRemoteHero( String peerId, String reason ) {
 		RemoteHero remoteHero = remoteHeroesByPeerId.remove( peerId );
 		if (remoteHero == null) {
@@ -658,6 +718,9 @@ public class CoopManager {
 		} else {
 			GLog.w( "[Co-op] Determinism mismatch depth=%d local=%s remote=%s from=%s",
 				Integer.valueOf( event.depth ), localHash, event.levelHash, event.actorId );
+			if (!isHost()) {
+				requestSnapshotResync( "checksum-mismatch-depth-" + event.depth );
+			}
 		}
 	}
 
@@ -795,6 +858,398 @@ public class CoopManager {
 		} catch (Exception ignored) {
 			GLog.w( "[Co-op] Failed to apply TURN_OUTCOME payload from %s", event.actorId );
 		}
+	}
+
+	private void onResolvedAuthoritativeAction() {
+		sendWorldDiff();
+		turnsSinceFullStateSync++;
+		turnsSinceHashBroadcast++;
+		if (turnsSinceFullStateSync >= FULL_SYNC_INTERVAL_TURNS) {
+			sendFullStateSync( "periodic" );
+			turnsSinceFullStateSync = 0;
+		}
+		if (turnsSinceHashBroadcast >= HASH_INTERVAL_TURNS) {
+			broadcastFloorChecksum();
+			turnsSinceHashBroadcast = 0;
+		}
+	}
+
+	private void sendWorldDiff() {
+		if (!connected || Dungeon.depth <= 0 || Dungeon.level == null) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.worldDiff( playerId, Dungeon.depth, buildWorldDiffPayload() ) );
+	}
+
+	private void sendFullStateSync( String reason ) {
+		if (!connected || Dungeon.depth <= 0 || Dungeon.level == null) {
+			return;
+		}
+		JSONObject state = buildFullStatePayload();
+		state.put( "reason", reason == null ? "unspecified" : reason );
+		realtimeChannel.send( CoopEvent.fullStateSync( playerId, Dungeon.depth, state ) );
+	}
+
+	private JSONObject buildFullStatePayload() {
+		JSONObject state = new JSONObject();
+		state.put( "actorId", playerId );
+		state.put( "depth", Dungeon.depth );
+		state.put( "heroPos", Dungeon.hero == null ? -1 : Dungeon.hero.pos );
+		state.put( "heroHp", Dungeon.hero == null ? 0 : Dungeon.hero.HP );
+		state.put( "terrain", terrainSnapshot() );
+		state.put( "mobs", mobSnapshot() );
+		state.put( "loot", lootSnapshot() );
+		state.put( "blobs", blobSnapshot() );
+		state.put( "checksum", computeFloorChecksum() );
+		return state;
+	}
+
+	private JSONObject buildWorldDiffPayload() {
+		JSONObject diff = new JSONObject();
+		diff.put( "tickMs", System.currentTimeMillis() );
+		diff.put( "mobSpawn", mobSnapshot() );
+		diff.put( "mobDespawn", collectMobDespawns() );
+		diff.put( "mobState", mobStateSnapshot() );
+		diff.put( "lootSpawn", lootSnapshot() );
+		diff.put( "lootPickup", collectLootPickup() );
+		diff.put( "trapTrigger", new JSONArray() );
+		diff.put( "doorState", collectDoorStateDiff() );
+		diff.put( "blobUpdates", blobSnapshot() );
+		return diff;
+	}
+
+	private JSONArray terrainSnapshot() {
+		JSONArray terrain = new JSONArray();
+		if (Dungeon.level == null || Dungeon.level.map == null) {
+			return terrain;
+		}
+		for (int i = 0; i < Dungeon.level.map.length; i++) {
+			terrain.put( Dungeon.level.map[i] );
+		}
+		return terrain;
+	}
+
+	private JSONArray mobSnapshot() {
+		JSONArray mobs = new JSONArray();
+		for (Mob mob : Dungeon.level.mobs) {
+			JSONObject json = new JSONObject();
+			String stableId = stableMobId( mob );
+			json.put( "id", stableId );
+			json.put( "class", mob.getClass().getName() );
+			json.put( "pos", mob.pos );
+			json.put( "hp", mob.HP );
+			json.put( "ht", mob.HT );
+			json.put( "state", mob.state == null ? "" : mob.state.getClass().getName() );
+			mobs.put( json );
+		}
+		return mobs;
+	}
+
+	private JSONArray mobStateSnapshot() {
+		JSONArray mobs = new JSONArray();
+		for (Mob mob : Dungeon.level.mobs) {
+			JSONObject json = new JSONObject();
+			json.put( "id", stableMobId( mob ) );
+			json.put( "pos", mob.pos );
+			json.put( "hp", mob.HP );
+			json.put( "ht", mob.HT );
+			mobs.put( json );
+		}
+		return mobs;
+	}
+
+	private JSONArray collectMobDespawns() {
+		JSONArray despawn = new JSONArray();
+		Set<String> existingIds = new HashSet<String>();
+		for (Mob mob : Dungeon.level.mobs) {
+			existingIds.add( stableMobId( mob ) );
+		}
+		for (String stableId : new ArrayList<String>( localMobActorIdByStableId.keySet() )) {
+			if (!existingIds.contains( stableId )) {
+				despawn.put( stableId );
+				localMobActorIdByStableId.remove( stableId );
+			}
+		}
+		return despawn;
+	}
+
+	private JSONArray lootSnapshot() {
+		JSONArray loot = new JSONArray();
+		int size = Dungeon.level.heaps.size();
+		for (int i = 0; i < size; i++) {
+			Heap heap = Dungeon.level.heaps.valueAt( i );
+			JSONObject json = new JSONObject();
+			json.put( "id", stableHeapId( heap ) );
+			json.put( "cell", heap.pos );
+			json.put( "type", heap.type.name() );
+			json.put( "size", heap.size() );
+			json.put( "item", heap.peek() == null ? "" : heap.peek().toString() );
+			loot.put( json );
+		}
+		return loot;
+	}
+
+	private JSONArray collectLootPickup() {
+		JSONArray picked = new JSONArray();
+		Set<String> activeHeapIds = new HashSet<String>();
+		int size = Dungeon.level.heaps.size();
+		for (int i = 0; i < size; i++) {
+			activeHeapIds.add( stableHeapId( Dungeon.level.heaps.valueAt( i ) ) );
+		}
+		for (String heapId : new ArrayList<String>( remoteHeapCellByStableId.keySet() )) {
+			if (!activeHeapIds.contains( heapId )) {
+				JSONObject json = new JSONObject();
+				json.put( "id", heapId );
+				json.put( "cell", remoteHeapCellByStableId.remove( heapId ) );
+				picked.put( json );
+			}
+		}
+		return picked;
+	}
+
+	private JSONArray collectDoorStateDiff() {
+		JSONArray doors = new JSONArray();
+		if (Dungeon.level == null || Dungeon.level.map == null) {
+			return doors;
+		}
+		for (int i = 0; i < Dungeon.level.map.length; i++) {
+			int tile = Dungeon.level.map[i];
+			if (tile == Terrain.DOOR || tile == Terrain.OPEN_DOOR || tile == Terrain.LOCKED_DOOR) {
+				JSONObject json = new JSONObject();
+				json.put( "cell", i );
+				json.put( "tile", tile );
+				doors.put( json );
+			}
+		}
+		return doors;
+	}
+
+	private JSONArray blobSnapshot() {
+		JSONArray blobs = new JSONArray();
+		for (Blob blob : Dungeon.level.blobs.values()) {
+			JSONObject json = new JSONObject();
+			json.put( "id", blob.getClass().getName() );
+			json.put( "volume", blob.volume );
+			json.put( "cells", nonZeroBlobCells( blob ) );
+			blobs.put( json );
+		}
+		return blobs;
+	}
+
+	private JSONArray nonZeroBlobCells( Blob blob ) {
+		JSONArray cells = new JSONArray();
+		if (blob == null || blob.cur == null) {
+			return cells;
+		}
+		for (int i = 0; i < blob.cur.length; i++) {
+			if (blob.cur[i] > 0) {
+				JSONObject cell = new JSONObject();
+				cell.put( "cell", i );
+				cell.put( "value", blob.cur[i] );
+				cells.put( cell );
+			}
+		}
+		return cells;
+	}
+
+	private String stableMobId( Mob mob ) {
+		if (mob == null) {
+			return "mob-unknown";
+		}
+		Integer actorId = Integer.valueOf( mob.id() );
+		String stableId = stableMobIdByActorId.get( actorId );
+		if (stableId == null) {
+			stableId = "mob-" + Dungeon.depth + "-" + actorId;
+			stableMobIdByActorId.put( actorId, stableId );
+		}
+		localMobActorIdByStableId.put( stableId, actorId );
+		return stableId;
+	}
+
+	private String stableHeapId( Heap heap ) {
+		if (heap == null) {
+			return "heap-unknown";
+		}
+		String id = "heap-" + Dungeon.depth + "-" + heap.pos;
+		remoteHeapCellByStableId.put( id, Integer.valueOf( heap.pos ) );
+		return id;
+	}
+
+	private void applyWorldDiff( CoopEvent event ) {
+		if (event == null || event.payload == null || Dungeon.level == null) {
+			return;
+		}
+		JSONObject diff = event.payload.optJSONObject( "diff" );
+		if (diff == null) {
+			return;
+		}
+		applyMobDiff( diff );
+		applyLootDiff( diff );
+		applyDoorStateDiff( diff.optJSONArray( "doorState" ) );
+		applyBlobDiff( diff.optJSONArray( "blobUpdates" ) );
+		GameScene.updateMap();
+		GameScene.afterObserve();
+	}
+
+	private void applyMobDiff( JSONObject diff ) {
+		JSONArray mobState = diff.optJSONArray( "mobState" );
+		if (mobState == null) {
+			requestSnapshotResync( "missing-mob-state" );
+			return;
+		}
+		for (int i = 0; i < mobState.length(); i++) {
+			JSONObject mobJson = mobState.optJSONObject( i );
+			if (mobJson == null) {
+				continue;
+			}
+			String stableId = mobJson.optString( "id", "" );
+			Mob localMob = localMobByStableId( stableId );
+			if (localMob == null) {
+				requestSnapshotResync( "missing-mob:" + stableId );
+				continue;
+			}
+			int newPos = mobJson.optInt( "pos", localMob.pos );
+			if (isInBounds( newPos ) && localMob.pos != newPos && isCellAvailableForRemote( localMob, newPos )) {
+				int oldPos = localMob.pos;
+				Actor.freeCell( oldPos );
+				localMob.pos = newPos;
+				Actor.occupyCell( localMob );
+				if (localMob.sprite != null) {
+					localMob.sprite.move( oldPos, newPos );
+				}
+			}
+			localMob.HP = mobJson.optInt( "hp", localMob.HP );
+			if (localMob.sprite != null) {
+				localMob.sprite.showStatus( CharSprite.NEUTRAL, String.valueOf( localMob.HP ) );
+			}
+		}
+		JSONArray despawn = diff.optJSONArray( "mobDespawn" );
+		if (despawn != null) {
+			for (int i = 0; i < despawn.length(); i++) {
+				String stableId = despawn.optString( i, null );
+				Mob mob = localMobByStableId( stableId );
+				if (mob != null) {
+					Dungeon.level.mobs.remove( mob );
+					mob.destroy();
+				}
+			}
+		}
+	}
+
+	private Mob localMobByStableId( String stableId ) {
+		if (stableId == null || stableId.length() == 0) {
+			return null;
+		}
+		Integer actorId = localMobActorIdByStableId.get( stableId );
+		if (actorId == null) {
+			return null;
+		}
+		for (Mob mob : Dungeon.level.mobs) {
+			if (mob.id() == actorId.intValue()) {
+				return mob;
+			}
+		}
+		return null;
+	}
+
+	private void applyLootDiff( JSONObject diff ) {
+		JSONArray pickup = diff.optJSONArray( "lootPickup" );
+		if (pickup != null) {
+			for (int i = 0; i < pickup.length(); i++) {
+				JSONObject pickupJson = pickup.optJSONObject( i );
+				if (pickupJson == null) {
+					continue;
+				}
+				int cell = pickupJson.optInt( "cell", -1 );
+				Heap heap = Dungeon.level.heaps.get( cell );
+				if (heap != null) {
+					heap.destroy();
+				}
+			}
+		}
+	}
+
+	private void applyDoorStateDiff( JSONArray doors ) {
+		if (doors == null || Dungeon.level == null || Dungeon.level.map == null) {
+			return;
+		}
+		for (int i = 0; i < doors.length(); i++) {
+			JSONObject door = doors.optJSONObject( i );
+			if (door == null) {
+				continue;
+			}
+			int cell = door.optInt( "cell", -1 );
+			int tile = door.optInt( "tile", -1 );
+			if (isInBounds( cell ) && tile >= 0 && Dungeon.level.map[cell] != tile) {
+				Dungeon.level.map[cell] = tile;
+				GameScene.updateMap( cell );
+			}
+		}
+	}
+
+	private void applyBlobDiff( JSONArray blobs ) {
+		if (blobs == null || Dungeon.level == null) {
+			return;
+		}
+		for (int i = 0; i < blobs.length(); i++) {
+			JSONObject blobJson = blobs.optJSONObject( i );
+			if (blobJson == null) {
+				continue;
+			}
+			String className = blobJson.optString( "id", "" );
+			Blob blob = findBlobByClassName( className );
+			if (blob == null) {
+				continue;
+			}
+			JSONArray cells = blobJson.optJSONArray( "cells" );
+			if (cells == null) {
+				continue;
+			}
+			for (int c = 0; c < blob.cur.length; c++) {
+				blob.cur[c] = 0;
+			}
+			blob.volume = 0;
+			for (int c = 0; c < cells.length(); c++) {
+				JSONObject cell = cells.optJSONObject( c );
+				if (cell == null) {
+					continue;
+				}
+				int index = cell.optInt( "cell", -1 );
+				int value = cell.optInt( "value", 0 );
+				if (isInBounds( index ) && value > 0) {
+					blob.cur[index] = value;
+					blob.volume += value;
+				}
+			}
+		}
+	}
+
+	private Blob findBlobByClassName( String className ) {
+		for (Blob blob : Dungeon.level.blobs.values()) {
+			if (blob.getClass().getName().equals( className )) {
+				return blob;
+			}
+		}
+		return null;
+	}
+
+	private void broadcastFloorChecksum() {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.levelHash( playerId, Dungeon.depth, computeFloorChecksum() ) );
+	}
+
+	private String computeFloorChecksum() {
+		String base = computeLevelHash( Dungeon.level );
+		return Dungeon.depth + ":" + base + ":" + Dungeon.level.mobs.size() + ":" + Dungeon.level.heaps.size() + ":" + Dungeon.level.blobs.size();
+	}
+
+	private void requestSnapshotResync( String reason ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		realtimeChannel.send( CoopEvent.snapshotRequest( playerId, Dungeon.depth, reason ) );
 	}
 
 	private boolean isIntentKind( CoopEvent.Kind kind ) {
@@ -979,10 +1434,25 @@ public class CoopManager {
 		if (state == null) {
 			return;
 		}
-		int actorPos = state.optInt( "actorPos", -1 );
-		String actorId = state.optString( "actorId", null );
-		if (actorId != null && actorId.equals( playerId )) {
-			snapLocalHeroToAuthoritativePosition( actorPos );
+		int heroPos = state.optInt( "heroPos", state.optInt( "actorPos", -1 ) );
+		snapLocalHeroToAuthoritativePosition( heroPos );
+		if (Dungeon.hero != null) {
+			Dungeon.hero.HP = state.optInt( "heroHp", Dungeon.hero.HP );
 		}
+		JSONArray terrain = state.optJSONArray( "terrain" );
+		if (terrain != null && Dungeon.level != null && Dungeon.level.map != null && terrain.length() == Dungeon.level.map.length) {
+			for (int i = 0; i < terrain.length(); i++) {
+				Dungeon.level.map[i] = terrain.optInt( i, Dungeon.level.map[i] );
+			}
+			GameScene.updateMap();
+		}
+		applyWorldDiff( new CoopEvent( event.version, CoopEvent.Kind.WORLD_DIFF, CoopEvent.Kind.WORLD_DIFF.name(), event.actorId, event.floor, event.tick,
+			new JSONObject().put( "diff", new JSONObject()
+				.put( "mobState", state.optJSONArray( "mobs" ) == null ? new JSONArray() : state.optJSONArray( "mobs" ) )
+				.put( "mobDespawn", new JSONArray() )
+				.put( "lootPickup", new JSONArray() )
+				.put( "doorState", collectDoorStateDiff() )
+				.put( "blobUpdates", state.optJSONArray( "blobs" ) == null ? new JSONArray() : state.optJSONArray( "blobs" ) ) ),
+			event.sentAtMs ) );
 	}
 }

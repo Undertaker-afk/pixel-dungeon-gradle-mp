@@ -158,6 +158,14 @@ public final class CoopEventCodec {
 				throw new IllegalArgumentException( "payload.state is required for FULL_STATE_SYNC" );
 			}
 			break;
+		case WORLD_DIFF:
+			if (!event.payload.has( "diff" )) {
+				throw new IllegalArgumentException( "payload.diff is required for WORLD_DIFF" );
+			}
+			break;
+		case SNAPSHOT_REQUEST:
+			requireString( event.payload, "reason" );
+			break;
 		case DESPAWN:
 		default:
 			break;

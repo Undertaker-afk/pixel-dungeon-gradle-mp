@@ -24,7 +24,9 @@ public class CoopEvent {
 		FULL_STATE_SYNC,
 		LEVEL_HASH,
 		TURN_OUTCOME,
-		DESPAWN
+		DESPAWN,
+		WORLD_DIFF,
+		SNAPSHOT_REQUEST
 	}
 
 	public final int version;
@@ -184,5 +186,17 @@ public class CoopEvent {
 
 	public static CoopEvent despawn( String actorId, int floor ) {
 		return of( Kind.DESPAWN, actorId, floor, new JSONObject() );
+	}
+
+	public static CoopEvent worldDiff( String actorId, int floor, JSONObject diff ) {
+		JSONObject payload = new JSONObject();
+		payload.put( "diff", diff == null ? new JSONObject() : diff );
+		return of( Kind.WORLD_DIFF, actorId, floor, payload );
+	}
+
+	public static CoopEvent snapshotRequest( String actorId, int floor, String reason ) {
+		JSONObject payload = new JSONObject();
+		payload.put( "reason", reason == null ? "unspecified" : reason );
+		return of( Kind.SNAPSHOT_REQUEST, actorId, floor, payload );
 	}
 }
