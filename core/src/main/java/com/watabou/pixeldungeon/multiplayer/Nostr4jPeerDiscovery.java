@@ -2,6 +2,7 @@ package com.watabou.pixeldungeon.multiplayer;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +11,7 @@ import java.util.UUID;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import com.watabou.pixeldungeon.PixelDungeon;
@@ -22,6 +24,7 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 
 	private static final String RELAY_URL = "wss://nos.lol";
 	private static final int DISCOVERY_KIND = 20000;
+	private static final long LOBBY_EXPIRATION_MS = 90000L;
 
 	private WebSocketClient socket;
 	private Listener listener;
@@ -113,12 +116,17 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 
 	@Override
 	public List<CoopLobby> knownLobbies() {
-		List<CoopLobby> result = new ArrayList<CoopLobby>( lobbies.values() );
-		for (int i = result.size() - 1; i >= 0; i--) {
-			CoopLobby lobby = result.get( i );
-			if (System.currentTimeMillis() - lobby.announcedAtMillis > 90000) {
-				result.remove( i );
+		final long now = System.currentTimeMillis();
+		List<CoopLobby> result = new ArrayList<CoopLobby>();
+		Iterator<Map.Entry<String, CoopLobby>> it = lobbies.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<String, CoopLobby> entry = it.next();
+			CoopLobby lobby = entry.getValue();
+			if (now - lobby.announcedAtMillis > LOBBY_EXPIRATION_MS) {
+				it.remove();
+				continue;
 			}
+			result.add( lobby );
 		}
 		return result;
 	}
@@ -151,20 +159,21 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 			if (playerId != null && playerId.equals( pubkey )) {
 				return;
 			}
-				JSONObject payload = new JSONObject( event.optString( "content", "{}" ) );
-				String discoveredPeerId = payload.optString( "peerId", pubkey );
-				String discoveredRoomId = payload.optString( "roomId", roomId );
-				CoopLobby lobby = new CoopLobby(
-					discoveredRoomId,
-					discoveredPeerId,
-					Math.max( 1, payload.optInt( "playerCount", 1 ) ),
-					Math.max( 1, Math.min( 6, payload.optInt( "maxPlayers", 6 ) ) ),
-					payload.optBoolean( "acceptingPlayers", true ),
-					System.currentTimeMillis(),
-					payload.optString( "unlockedClasses", "WARRIOR" ) );
-				lobbies.put( discoveredRoomId + ":" + discoveredPeerId, lobby );
-				listener.onPeer( discoveredPeerId );
-			} catch (Exception ignored) {
+			JSONObject payload = new JSONObject( event.optString( "content", "{}" ) );
+			String discoveredPeerId = payload.optString( "peerId", pubkey );
+			String discoveredRoomId = payload.optString( "roomId", roomId );
+			CoopLobby lobby = new CoopLobby(
+				discoveredRoomId,
+				discoveredPeerId,
+				Math.max( 1, payload.optInt( "playerCount", 1 ) ),
+				Math.max( 1, Math.min( 6, payload.optInt( "maxPlayers", 6 ) ) ),
+				payload.optBoolean( "acceptingPlayers", true ),
+				System.currentTimeMillis(),
+				payload.optString( "unlockedClasses", "WARRIOR" ) );
+			lobbies.put( discoveredRoomId + ":" + discoveredPeerId, lobby );
+			listener.onPeer( discoveredPeerId );
+		} catch (JSONException e) {
+				PixelDungeon.reportException( e );
 		}
 	}
 }

@@ -368,7 +368,8 @@ public class PixelDungeon extends Game {
 	public static CoopRole coopRole() {
 		try {
 			return CoopRole.valueOf( Preferences.INSTANCE.getString( Preferences.KEY_COOP_ROLE, CoopRole.PLAYER.name() ) );
-		} catch (Exception ignored) {
+		} catch (IllegalArgumentException e) {
+			reportException( e );
 			return CoopRole.PLAYER;
 		}
 	}

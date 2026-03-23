@@ -1,6 +1,5 @@
 package com.watabou.pixeldungeon.multiplayer;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -105,18 +104,14 @@ public class CoopManager {
 	}
 
 	private String enabledClassesCsv() {
-		List<String> unlocked = new ArrayList<String>();
+		StringBuilder sb = new StringBuilder();
 		for (HeroClass heroClass : HeroClass.values()) {
 			if (heroClass == HeroClass.WARRIOR || Badges.isUnlocked( heroClass.masteryBadge() )) {
-				unlocked.add( heroClass.name() );
+				if (sb.length() > 0) {
+					sb.append( "," );
+				}
+				sb.append( heroClass.name() );
 			}
-		}
-		StringBuilder sb = new StringBuilder();
-		for (int i = 0; i < unlocked.size(); i++) {
-			if (i > 0) {
-				sb.append( "," );
-			}
-			sb.append( unlocked.get( i ) );
 		}
 		return sb.toString();
 	}

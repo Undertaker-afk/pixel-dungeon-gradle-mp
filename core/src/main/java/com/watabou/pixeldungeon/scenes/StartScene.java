@@ -384,13 +384,13 @@ public class StartScene extends PixelScene {
 
 	private void showServerBrowser() {
 		List<CoopLobby> lobbies = new ArrayList<CoopLobby>( CoopManager.instance().knownLobbies() );
-		Collections.sort( lobbies, new Comparator<CoopLobby>() {
-			@Override
-			public int compare( CoopLobby a, CoopLobby b ) {
-				int byFullness = (a.playerCount * 100 / Math.max( 1, a.maxPlayers )) - (b.playerCount * 100 / Math.max( 1, b.maxPlayers ));
-				return byFullness != 0 ? byFullness : (int)(b.announcedAtMillis - a.announcedAtMillis);
-			}
-		} );
+			Collections.sort( lobbies, new Comparator<CoopLobby>() {
+				@Override
+				public int compare( CoopLobby a, CoopLobby b ) {
+					int byFullness = (a.playerCount * 100 / Math.max( 1, a.maxPlayers )) - (b.playerCount * 100 / Math.max( 1, b.maxPlayers ));
+					return byFullness != 0 ? byFullness : Long.compare( b.announcedAtMillis, a.announcedAtMillis );
+				}
+			} );
 
 		final String[] options = new String[Math.min( 3, lobbies.size() ) + 1];
 		final String[] roomIds = new String[Math.min( 3, lobbies.size() )];
