@@ -81,4 +81,26 @@ public class CoopEventCodecTest {
 		assertEquals( CoopEvent.Kind.LEVEL_SYNC, decoded.kind );
 		assertEquals( Long.valueOf( 98765L ), decoded.levelSeed );
 	}
+
+	@Test
+	public void worldDiffRoundTripKeepsDiffPayload() {
+		JSONObject diff = new JSONObject().put( "mobState", new org.json.JSONArray() );
+		CoopEvent event = CoopEvent.worldDiff( "peer-host", 3, diff );
+		CoopEvent decoded = CoopEventCodec.fromJson( CoopEventCodec.toJson( event ) );
+
+		assertEquals( CoopEvent.Kind.WORLD_DIFF, decoded.kind );
+		assertTrue( decoded.payload.has( "diff" ) );
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void snapshotRequestRequiresReason() {
+		JSONObject bad = new JSONObject();
+		bad.put( "version", 1 );
+		bad.put( "kind", "SNAPSHOT_REQUEST" );
+		bad.put( "actorId", "peer-a" );
+		bad.put( "floor", 2 );
+		bad.put( "tick", 1 );
+		bad.put( "payload", new JSONObject() );
+		CoopEventCodec.fromJson( bad.toString() );
+	}
 }
