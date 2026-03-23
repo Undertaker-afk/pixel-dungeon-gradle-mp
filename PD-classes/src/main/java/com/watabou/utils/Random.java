@@ -26,32 +26,48 @@ import java.util.HashMap;
 
 public class Random {
 
+	private static final java.util.Random RNG = new java.util.Random();
+	private static long currentSeed = System.currentTimeMillis();
+
+	static {
+		RNG.setSeed( currentSeed );
+	}
+
+	public static void setSeed( long seed ) {
+		currentSeed = seed;
+		RNG.setSeed( seed );
+	}
+
+	public static long currentSeed() {
+		return currentSeed;
+	}
+
 	public static float Float( float min, float max ) {
-		return (float)(min + Math.random() * (max - min));
+		return min + RNG.nextFloat() * (max - min);
 	}
 	
 	public static float Float( float max ) {
-		return (float)(Math.random() * max);
+		return RNG.nextFloat() * max;
 	}
 	
 	public static float Float() {
-		return (float)Math.random();
+		return RNG.nextFloat();
 	}
 	
 	public static int Int( int max ) {
-		return max > 0 ? (int)(Math.random() * max) : 0;
+		return max > 0 ? RNG.nextInt( max ) : 0;
 	}
 	
 	public static int Int( int min, int max ) {
-		return min + (int)(Math.random() * (max - min));
+		return min + Int( max - min );
 	}
 	
 	public static int IntRange( int min, int max ) {
-		return min + (int)(Math.random() * (max - min + 1));
+		return min + Int( max - min + 1 );
 	}
 	
 	public static int NormalIntRange( int min, int max ) {
-		return min + (int)((Math.random() + Math.random()) * (max - min + 1) / 2f);
+		return min + (int)((RNG.nextFloat() + RNG.nextFloat()) * (max - min + 1) / 2f);
 	}
 	
 	public static int chances( float[] chances ) {
@@ -102,12 +118,12 @@ public class Random {
 	}
 	
 	public static int index( Collection<?> collection ) {
-		return (int)(Math.random() * collection.size());
+		return Int( collection.size() );
 	}
 
 	@SafeVarargs
 	public static<T> T oneOf( T... array ) {
-		return array[(int)(Math.random() * array.length)];
+		return array[Int( array.length )];
 	}
 	
 	public static<T> T element( T[] array ) {
@@ -115,7 +131,7 @@ public class Random {
 	}
 	
 	public static<T> T element( T[] array, int max ) {
-		return array[(int)(Math.random() * max)];
+		return array[Int( max )];
 	}
 	
 	@SuppressWarnings("unchecked")
