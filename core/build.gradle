@@ -20,4 +20,6 @@ android {
 
 dependencies {
     implementation project(':PD-classes')
+    implementation 'org.java-websocket:Java-WebSocket:1.5.6'
+    compileOnly 'io.libp2p:jvm-libp2p:1.2.2-RELEASE'
 }

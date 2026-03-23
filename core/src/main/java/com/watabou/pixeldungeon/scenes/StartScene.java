@@ -56,6 +56,7 @@ public class StartScene extends PixelScene {
 	
 	private static final String TXT_LOAD	= "Load Game";
 	private static final String TXT_NEW		= "New Game";
+	private static final String TXT_COOP	= "Co-op";
 	
 	private static final String TXT_ERASE		= "Erase current game";
 	private static final String TXT_DPTH_LVL	= "Depth: %d, level: %d";
@@ -70,6 +71,12 @@ public class StartScene extends PixelScene {
 	private static final String TXT_WIN_THE_GAME = 
 		"To unlock \"Challenges\", win the game with any character class.";
 	
+	private static final String TXT_COOP_TITLE = "Co-op (Experimental)";
+	private static final String TXT_COOP_MESSAGE = "Uses Nostr relay (wss://nos.lol) for peer discovery and direct UDP realtime sync for move/attack events.";
+	private static final String TXT_COOP_ON = "Enable co-op room";
+	private static final String TXT_COOP_OFF = "Disable co-op";
+	private static final String TXT_COOP_OK = "Back";
+	
 	private static final float WIDTH_P	= 116;
 	private static final float HEIGHT_P	= 220;
 	
@@ -83,6 +90,7 @@ public class StartScene extends PixelScene {
 	
 	private GameButton btnLoad;
 	private GameButton btnNewGame;
+	private RedButton btnCoop;
 	
 	private boolean huntressUnlocked;
 	private Group unlock;
@@ -154,6 +162,15 @@ public class StartScene extends PixelScene {
 			}
 		};
 		add( btnLoad );	
+
+		btnCoop = new RedButton( TXT_COOP ) {
+			@Override
+			protected void onClick() {
+				showCoopOptions();
+			}
+		};
+		btnCoop.setRect( 0, 0, 52, BUTTON_HEIGHT );
+		add( btnCoop );
 		
 		float centralHeight = buttonY - title.y - title.height();
 		
@@ -223,6 +240,8 @@ public class StartScene extends PixelScene {
 		ExitButton btnExit = new ExitButton();
 		btnExit.setPos( Camera.main.width - btnExit.width(), 0 );
 		add( btnExit );
+		
+		btnCoop.setPos( 0, 0 );
 		
 		curClass = null;
 		updateClass( HeroClass.values()[PixelDungeon.lastClass()] );
@@ -297,6 +316,23 @@ public class StartScene extends PixelScene {
 		}
 	}
 	
+	private void showCoopOptions() {
+		final boolean enabled = PixelDungeon.coopEnabled();
+		add( new WndOptions( TXT_COOP_TITLE, TXT_COOP_MESSAGE,
+			enabled ? TXT_COOP_OFF : TXT_COOP_ON,
+			TXT_COOP_OK ) {
+			@Override
+			protected void onSelect( int index ) {
+				if (index == 0) {
+					PixelDungeon.coopEnabled( !enabled );
+					if (PixelDungeon.coopRoom().length() == 0) {
+						PixelDungeon.coopRoom( "public-alpha" );
+					}
+				}
+			}
+		} );
+	}
+
 	private void startNewGame() {
 
 		Dungeon.hero = null;
