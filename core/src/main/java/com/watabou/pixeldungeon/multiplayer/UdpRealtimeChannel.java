@@ -2,27 +2,13 @@ package com.watabou.pixeldungeon.multiplayer;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.util.HashMap;
-import java.util.Map;
 
 import org.json.JSONObject;
 
 import com.watabou.pixeldungeon.PixelDungeon;
+import com.watabou.pixeldungeon.utils.GLog;
 
 public class UdpRealtimeChannel implements RealtimeChannel {
-
-	private static class PeerAddress {
-		final String host;
-		final int port;
-
-		PeerAddress( String host, int port ) {
-			this.host = host;
-			this.port = port;
-		}
-	}
-
-	private final Map<String, PeerAddress> peers = new HashMap<String, PeerAddress>();
 	private DatagramSocket socket;
 	private Thread readThread;
 	private Listener listener;
@@ -39,21 +25,13 @@ public class UdpRealtimeChannel implements RealtimeChannel {
 	}
 
 	@Override
-	public int localPort() {
-		return socket == null ? -1 : socket.getLocalPort();
-	}
-
-	@Override
-	public void addPeer( String peerId, String host, int port ) {
-		if (peerId == null || host == null || port <= 0) {
-			return;
-		}
-		peers.put( peerId, new PeerAddress( host, port ) );
+	public void addPeer( String peerId ) {
+		GLog.i( "[Co-op] peer announced: %s (transport wiring pending)", peerId );
 	}
 
 	@Override
 	public void send( CoopEvent event ) {
-		if (socket == null || peers.isEmpty() || event == null) {
+		if (socket == null || event == null) {
 			return;
 		}
 		try {
@@ -63,16 +41,8 @@ public class UdpRealtimeChannel implements RealtimeChannel {
 			json.put( "depth", event.depth );
 			json.put( "from", event.fromCell );
 			json.put( "to", event.toCell );
-			byte[] payload = json.toString().getBytes( "UTF-8" );
-
-			for (PeerAddress peer : peers.values()) {
-				DatagramPacket packet = new DatagramPacket(
-					payload,
-					payload.length,
-					InetAddress.getByName( peer.host ),
-					peer.port );
-				socket.send( packet );
-			}
+			// Intentionally no direct UDP send path here: peer discovery does not carry
+			// host/IP metadata anymore to avoid leaking endpoint information.
 		} catch (Exception e) {
 			PixelDungeon.reportException( e );
 		}
@@ -84,7 +54,6 @@ public class UdpRealtimeChannel implements RealtimeChannel {
 			socket.close();
 			socket = null;
 		}
-		peers.clear();
 		listener = null;
 	}
 

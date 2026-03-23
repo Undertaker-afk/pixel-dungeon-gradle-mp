@@ -17,7 +17,11 @@
  */
 package com.watabou.pixeldungeon.scenes;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 
 import com.watabou.noosa.BitmapText;
 import com.watabou.noosa.BitmapTextMultiline;
@@ -38,6 +42,9 @@ import com.watabou.pixeldungeon.actors.hero.HeroClass;
 import com.watabou.pixeldungeon.effects.BannerSprites;
 import com.watabou.pixeldungeon.effects.Speck;
 import com.watabou.pixeldungeon.effects.BannerSprites.Type;
+import com.watabou.pixeldungeon.multiplayer.CoopLobby;
+import com.watabou.pixeldungeon.multiplayer.CoopManager;
+import com.watabou.pixeldungeon.multiplayer.CoopRole;
 import com.watabou.pixeldungeon.ui.Archs;
 import com.watabou.pixeldungeon.ui.ExitButton;
 import com.watabou.pixeldungeon.ui.Icons;
@@ -72,9 +79,12 @@ public class StartScene extends PixelScene {
 		"To unlock \"Challenges\", win the game with any character class.";
 	
 	private static final String TXT_COOP_TITLE = "Co-op (Experimental)";
-	private static final String TXT_COOP_MESSAGE = "Uses Nostr relay (wss://nos.lol) for peer discovery and direct UDP realtime sync for move/attack events.";
+	private static final String TXT_COOP_MESSAGE = "Nostr handles secure lobby discovery only. Realtime path is jvm-libp2p first; room max players is 6.";
 	private static final String TXT_COOP_ON = "Enable co-op room";
 	private static final String TXT_COOP_OFF = "Disable co-op";
+	private static final String TXT_COOP_ROLE = "Switch role";
+	private static final String TXT_COOP_SERVERS = "Browse servers";
+	private static final String TXT_COOP_ADMIN = "Host admin";
 	private static final String TXT_COOP_OK = "Back";
 	
 	private static final float WIDTH_P	= 116;
@@ -318,8 +328,12 @@ public class StartScene extends PixelScene {
 	
 	private void showCoopOptions() {
 		final boolean enabled = PixelDungeon.coopEnabled();
+		final CoopRole role = PixelDungeon.coopRole();
 		add( new WndOptions( TXT_COOP_TITLE, TXT_COOP_MESSAGE,
 			enabled ? TXT_COOP_OFF : TXT_COOP_ON,
+			Utils.format( "%s (%s)", TXT_COOP_ROLE, role.name() ),
+			Utils.format( "%s (%s)", TXT_COOP_SERVERS, PixelDungeon.coopRoom() ),
+			role == CoopRole.DUNGEON_MASTER ? TXT_COOP_ADMIN : "Host admin (DM only)",
 			TXT_COOP_OK ) {
 			@Override
 			protected void onSelect( int index ) {
@@ -328,6 +342,72 @@ public class StartScene extends PixelScene {
 					if (PixelDungeon.coopRoom().length() == 0) {
 						PixelDungeon.coopRoom( "public-alpha" );
 					}
+				} else if (index == 1) {
+					toggleRole();
+				} else if (index == 2) {
+					showServerBrowser();
+				} else if (index == 3) {
+					showHostAdmin();
+				}
+			}
+		} );
+	}
+
+	private void toggleRole() {
+		CoopRole role = PixelDungeon.coopRole();
+		PixelDungeon.coopRole( role == CoopRole.DUNGEON_MASTER ? CoopRole.PLAYER : CoopRole.DUNGEON_MASTER );
+		showCoopOptions();
+	}
+
+	private void showHostAdmin() {
+		if (PixelDungeon.coopRole() != CoopRole.DUNGEON_MASTER) {
+			add( new WndMessage( "Switch role to DUNGEON_MASTER to access host admin controls." ) );
+			return;
+		}
+
+		String message = Utils.format( "Room: %s\nMax players: 6\nAdmin options are local safety controls.",
+			PixelDungeon.coopRoom() );
+		add( new WndOptions( "Host admin", message,
+			"Kick all players",
+			"Clear bans",
+			"Back" ) {
+			@Override
+			protected void onSelect( int index ) {
+				if (index == 0) {
+					CoopManager.instance().kickAllPlayers();
+				} else if (index == 1) {
+					CoopManager.instance().clearBans();
+				}
+			}
+		} );
+	}
+
+	private void showServerBrowser() {
+		List<CoopLobby> lobbies = new ArrayList<CoopLobby>( CoopManager.instance().knownLobbies() );
+			Collections.sort( lobbies, new Comparator<CoopLobby>() {
+				@Override
+				public int compare( CoopLobby a, CoopLobby b ) {
+					int byFullness = (a.playerCount * 100 / Math.max( 1, a.maxPlayers )) - (b.playerCount * 100 / Math.max( 1, b.maxPlayers ));
+					return byFullness != 0 ? byFullness : Long.compare( b.announcedAtMillis, a.announcedAtMillis );
+				}
+			} );
+
+		final String[] options = new String[Math.min( 3, lobbies.size() ) + 1];
+		final String[] roomIds = new String[Math.min( 3, lobbies.size() )];
+		for (int i = 0; i < roomIds.length; i++) {
+			CoopLobby lobby = lobbies.get( i );
+			roomIds[i] = lobby.roomId;
+			options[i] = Utils.format( "%s (%d/%d)", lobby.roomId, lobby.playerCount, lobby.maxPlayers );
+		}
+		options[options.length - 1] = "Back";
+		add( new WndOptions( "Server browser",
+			roomIds.length == 0 ? "No announced servers found yet.\nHosts are discovered over Nostr."
+				: "Pick a discovered server. Class locks are announced by host.",
+			options ) {
+			@Override
+			protected void onSelect( int index ) {
+				if (index >= 0 && index < roomIds.length) {
+					PixelDungeon.coopRoom( roomIds[index] );
 				}
 			}
 		} );

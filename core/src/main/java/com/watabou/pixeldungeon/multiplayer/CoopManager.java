@@ -1,9 +1,13 @@
 package com.watabou.pixeldungeon.multiplayer;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import com.watabou.pixeldungeon.Dungeon;
+import com.watabou.pixeldungeon.PixelDungeon;
+import com.watabou.pixeldungeon.actors.hero.HeroClass;
+import com.watabou.pixeldungeon.Badges;
 import com.watabou.pixeldungeon.utils.GLog;
 
 public class CoopManager {
@@ -21,6 +25,7 @@ public class CoopManager {
 	private String roomId;
 	private String playerId;
 	private final Set<String> peerIds = new HashSet<String>();
+	private final Set<String> bannedPeerIds = new HashSet<String>();
 
 	private CoopManager() {
 	}
@@ -42,20 +47,20 @@ public class CoopManager {
 
 		peerDiscovery.start( roomId, playerId, new PeerDiscovery.Listener() {
 			@Override
-			public void onPeer( String peerId, String host, int port ) {
-				if (peerId == null || peerId.length() == 0 || playerId.equals( peerId ) || port <= 0) {
-					return;
-				}
-				realtimeChannel.addPeer( peerId, host, port );
+				public void onPeer( String peerId ) {
+					if (peerId == null || peerId.length() == 0 || playerId.equals( peerId ) || bannedPeerIds.contains( peerId )) {
+						return;
+					}
+					realtimeChannel.addPeer( peerId );
 				if (peerIds.add( peerId )) {
-					GLog.i( "[Co-op] peer connected: %s (%s:%d)", peerId, host, port );
+					GLog.i( "[Co-op] peer connected: %s", peerId );
 				}
 			}
 		} );
-		peerDiscovery.announce( roomId, playerId, realtimeChannel.localPort() );
+		peerDiscovery.announce( buildLobbyAnnouncement(), playerId );
 
 		connected = true;
-		GLog.p( "[Co-op] Session ready in room '%s' on UDP %d", roomId, realtimeChannel.localPort() );
+		GLog.p( "[Co-op] Session ready in room '%s' (%s)", roomId, PixelDungeon.coopRole().name() );
 	}
 
 	public void disconnect() {
@@ -65,7 +70,50 @@ public class CoopManager {
 		peerDiscovery.stop();
 		realtimeChannel.disconnect();
 		peerIds.clear();
+		bannedPeerIds.clear();
 		connected = false;
+	}
+
+	public List<CoopLobby> knownLobbies() {
+		return peerDiscovery.knownLobbies();
+	}
+
+	public void kickAllPlayers() {
+		bannedPeerIds.addAll( peerIds );
+		peerIds.clear();
+		GLog.w( "[Co-op] All connected players were kicked from this local session." );
+	}
+
+	public void clearBans() {
+		bannedPeerIds.clear();
+		GLog.i( "[Co-op] Player bans cleared." );
+	}
+
+	private CoopLobby buildLobbyAnnouncement() {
+		int maxPlayers = 6;
+		int playerCount = Math.min( maxPlayers, 1 + peerIds.size() );
+		boolean accepting = playerCount < maxPlayers;
+		return new CoopLobby(
+			roomId,
+			playerId,
+			playerCount,
+			maxPlayers,
+			accepting,
+			System.currentTimeMillis(),
+			enabledClassesCsv() );
+	}
+
+	private String enabledClassesCsv() {
+		StringBuilder sb = new StringBuilder();
+		for (HeroClass heroClass : HeroClass.values()) {
+			if (heroClass == HeroClass.WARRIOR || Badges.isUnlocked( heroClass.masteryBadge() )) {
+				if (sb.length() > 0) {
+					sb.append( "," );
+				}
+				sb.append( heroClass.name() );
+			}
+		}
+		return sb.toString();
 	}
 
 	public void publishMove( int fromCell, int toCell ) {
