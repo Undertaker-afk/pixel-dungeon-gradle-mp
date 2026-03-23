@@ -580,6 +580,7 @@ public class Hero extends Char {
 			if (heap != null) {				
 				Item item = heap.pickUp();
 				if (item.doPickUp( this )) {
+					CoopManager.instance().publishItemPickup( item.name(), pos );
 					
 					if (item instanceof Dewdrop) {
 						// Do nothing
@@ -720,6 +721,7 @@ public class Hero extends Char {
 				hunger.satisfy( -Hunger.STARVING / 10 );
 			}
 			
+			CoopManager.instance().publishDescend( pos );
 			InterlevelScene.mode = InterlevelScene.Mode.DESCEND;
 			Game.switchScene( InterlevelScene.class );
 			
@@ -745,6 +747,7 @@ public class Hero extends Char {
 					GameScene.show( new WndMessage( TXT_LEAVE ) );
 					ready();
 				} else {
+					CoopManager.instance().publishAscend( pos );
 					Dungeon.win( ResultDescriptions.WIN );
 					Dungeon.deleteGame( Dungeon.hero.heroClass, true );
 					Game.switchScene( SurfaceScene.class );
@@ -759,6 +762,7 @@ public class Hero extends Char {
 					hunger.satisfy( -Hunger.STARVING / 10 );
 				}
 				
+				CoopManager.instance().publishAscend( pos );
 				InterlevelScene.mode = InterlevelScene.Mode.ASCEND;
 				Game.switchScene( InterlevelScene.class );
 			}
@@ -1084,6 +1088,10 @@ public class Hero extends Char {
 	public void add( Buff buff ) {
 		super.add( buff );
 		
+		if (buff != null) {
+			CoopManager.instance().publishBuff( buff.getClass().getSimpleName(), "ADD" );
+		}
+
 		if (sprite != null) {
 			if (buff instanceof Burning) {
 				GLog.w( "You catch fire!" );
@@ -1127,6 +1135,9 @@ public class Hero extends Char {
 	@Override
 	public void remove( Buff buff ) {
 		super.remove( buff );
+		if (buff != null) {
+			CoopManager.instance().publishBuff( buff.getClass().getSimpleName(), "REMOVE" );
+		}
 		
 		if (buff instanceof Light) {
 			sprite.remove( CharSprite.State.ILLUMINATED );
@@ -1157,6 +1168,7 @@ public class Hero extends Char {
 		
 		Actor.fixTime();
 		CoopManager.instance().publishDespawn();
+		CoopManager.instance().publishDeath( cause == null ? "unknown" : cause.getClass().getSimpleName() );
 		super.die( cause );
 		
 		Ankh ankh = (Ankh)belongings.getItem( Ankh.class );
@@ -1282,6 +1294,7 @@ public class Hero extends Char {
 			}
 			
 			int doorCell = ((HeroAction.Unlock)curAction).dst;
+			CoopManager.instance().publishDoorUnlock( doorCell );
 			int door = Dungeon.level.map[doorCell];
 			
 			Level.set( doorCell, door == Terrain.LOCKED_DOOR ? Terrain.DOOR : Terrain.UNLOCKED_EXIT );
