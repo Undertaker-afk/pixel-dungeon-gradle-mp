@@ -40,6 +40,7 @@ import com.watabou.pixeldungeon.actors.blobs.Blob;
 import com.watabou.pixeldungeon.actors.mobs.Mob;
 import com.watabou.pixeldungeon.coop.gameplay.RemoteHero;
 import com.watabou.pixeldungeon.coop.gameplay.RemoteHeroSprite;
+import com.watabou.pixeldungeon.multiplayer.CoopManager;
 import com.watabou.pixeldungeon.effects.BannerSprites;
 import com.watabou.pixeldungeon.effects.BlobEmitter;
 import com.watabou.pixeldungeon.effects.EmoIcon;
@@ -353,11 +354,12 @@ public class GameScene extends PixelScene {
 		
 		Actor.process();
 		
-		if (Dungeon.hero.ready && !Dungeon.hero.paralysed) {
+		boolean localInputReady = CoopManager.instance().isLocalInputReady();
+		if (localInputReady && !Dungeon.hero.paralysed) {
 			log.newLine();
 		}
 		
-		cellSelector.enabled = Dungeon.hero.ready;
+		cellSelector.enabled = localInputReady;
 	}
 	
 	@Override
@@ -369,7 +371,7 @@ public class GameScene extends PixelScene {
 	
 	@Override
 	protected void onMenuPressed() {
-		if (Dungeon.hero.ready) {
+		if (CoopManager.instance().isLocalInputReady()) {
 			selectItem( null, WndBag.Mode.ALL, null );
 		}
 	}

@@ -3,12 +3,17 @@ package com.watabou.pixeldungeon.multiplayer;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.CRC32;
+
+import org.json.JSONObject;
 
 import com.watabou.pixeldungeon.Dungeon;
 import com.watabou.pixeldungeon.PixelDungeon;
@@ -45,6 +50,7 @@ public class CoopManager {
 	private final Map<Integer, Long> levelSeedByDepth = new HashMap<Integer, Long>();
 	private final Map<Integer, String> levelHashByDepth = new HashMap<Integer, String>();
 	private final Map<String, RemoteHero> remoteHeroesByPeerId = new HashMap<String, RemoteHero>();
+	private final Map<String, Deque<CoopEvent>> intentQueueByPeerId = new HashMap<String, Deque<CoopEvent>>();
 	private long sessionSeedBase;
 
 	private CoopManager() {
@@ -97,6 +103,7 @@ public class CoopManager {
 		clearRemoteHeroes();
 		peerIds.clear();
 		bannedPeerIds.clear();
+		intentQueueByPeerId.clear();
 		synchronized (levelSyncLock) {
 			levelSeedByDepth.clear();
 			levelHashByDepth.clear();
@@ -152,6 +159,9 @@ public class CoopManager {
 			return;
 		}
 		realtimeChannel.send( CoopEvent.move( playerId, Dungeon.depth, fromCell, toCell ) );
+		if (isHost()) {
+			broadcastTurnOutcome( playerId, CoopEvent.Kind.MOVE, fromCell, toCell );
+		}
 	}
 
 	public void publishAttack( int fromCell, int toCell ) {
@@ -159,6 +169,9 @@ public class CoopManager {
 			return;
 		}
 		realtimeChannel.send( CoopEvent.attack( playerId, Dungeon.depth, fromCell, toCell ) );
+		if (isHost()) {
+			broadcastTurnOutcome( playerId, CoopEvent.Kind.ATTACK, fromCell, toCell );
+		}
 	}
 
 	public void publishDespawn() {
@@ -209,6 +222,10 @@ public class CoopManager {
 			handleLevelHash( event );
 			return;
 		}
+		if (event.kind == CoopEvent.Kind.TURN_OUTCOME) {
+			applyTurnOutcome( event );
+			return;
+		}
 		if (event.kind == CoopEvent.Kind.DESPAWN) {
 			despawnRemoteHero( event.actorId, "remote-event" );
 			return;
@@ -217,16 +234,98 @@ public class CoopManager {
 			return;
 		}
 
-		RemoteHero remoteHero = ensureRemoteHero( event.actorId );
-		if (remoteHero == null) {
+		if (event.kind == CoopEvent.Kind.MOVE || event.kind == CoopEvent.Kind.ATTACK || event.kind == CoopEvent.Kind.USE) {
+			enqueueIntent( event );
+			if (!isHost()) {
+				RemoteHero remoteHero = ensureRemoteHero( event.actorId );
+				if (remoteHero != null) {
+					consumeIntentForRemoteHero( remoteHero );
+				}
+			}
+		}
+	}
+
+	public CoopSimulationPolicy simulationPolicy() {
+		return PixelDungeon.coopRuntimeSettings().simulationPolicy();
+	}
+
+	public boolean isLocalInputReady() {
+		if (Dungeon.hero == null) {
+			return false;
+		}
+		if (!PixelDungeon.coopEnabled()) {
+			return Dungeon.hero.ready;
+		}
+		if (simulationPolicy() == CoopSimulationPolicy.LOCKSTEP) {
+			return Dungeon.hero.ready && !hasPendingRemoteIntents();
+		}
+		return Dungeon.hero.ready;
+	}
+
+	public boolean resolveRemoteHeroTurn( RemoteHero remoteHero ) {
+		if (remoteHero == null || !PixelDungeon.coopEnabled() || Dungeon.depth <= 0) {
+			return false;
+		}
+		if (simulationPolicy() != CoopSimulationPolicy.HOST_AUTHORITATIVE && !isHost()) {
+			return false;
+		}
+		return consumeIntentForRemoteHero( remoteHero );
+	}
+
+	private boolean hasPendingRemoteIntents() {
+		for (Deque<CoopEvent> queue : intentQueueByPeerId.values()) {
+			if (queue != null && !queue.isEmpty()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void enqueueIntent( CoopEvent event ) {
+		if (event == null || event.actorId == null) {
 			return;
 		}
-
-		if (event.kind == CoopEvent.Kind.MOVE) {
-			applyRemoteMove( remoteHero, event.fromCell, event.toCell );
-		} else if (event.kind == CoopEvent.Kind.ATTACK) {
-			applyRemoteAttack( remoteHero, event.fromCell, event.toCell );
+		Deque<CoopEvent> queue = intentQueueByPeerId.get( event.actorId );
+		if (queue == null) {
+			queue = new LinkedList<CoopEvent>();
+			intentQueueByPeerId.put( event.actorId, queue );
 		}
+		queue.addLast( event );
+		List<CoopEvent> ordered = new ArrayList<CoopEvent>( queue );
+		Collections.sort( ordered, new Comparator<CoopEvent>() {
+			@Override
+			public int compare( CoopEvent left, CoopEvent right ) {
+				int byTimestamp = left.sentAtMs < right.sentAtMs ? -1 : (left.sentAtMs == right.sentAtMs ? 0 : 1);
+				if (byTimestamp != 0) {
+					return byTimestamp;
+				}
+				String leftPeer = left.actorId == null ? "" : left.actorId;
+				String rightPeer = right.actorId == null ? "" : right.actorId;
+				return leftPeer.compareTo( rightPeer );
+			}
+		} );
+		queue.clear();
+		queue.addAll( ordered );
+	}
+
+	private boolean consumeIntentForRemoteHero( RemoteHero remoteHero ) {
+		Deque<CoopEvent> queue = intentQueueByPeerId.get( remoteHero.peerId );
+		if (queue == null || queue.isEmpty()) {
+			return false;
+		}
+		CoopEvent intent = queue.pollFirst();
+		if (intent == null) {
+			return false;
+		}
+		if (intent.kind == CoopEvent.Kind.MOVE) {
+			applyRemoteMove( remoteHero, intent.fromCell, intent.toCell );
+		} else if (intent.kind == CoopEvent.Kind.ATTACK) {
+			applyRemoteAttack( remoteHero, intent.fromCell, intent.toCell );
+		}
+		if (isHost()) {
+			broadcastTurnOutcome( remoteHero.peerId, intent.kind, intent.fromCell, intent.toCell );
+		}
+		return true;
 	}
 
 	private RemoteHero ensureRemoteHero( String peerId ) {
@@ -345,6 +444,7 @@ public class CoopManager {
 		if (remoteHero == null) {
 			return;
 		}
+		intentQueueByPeerId.remove( peerId );
 		GameScene.removeRemoteHero( remoteHero );
 		GLog.i( "[Co-op][RemoteHero] despawn peer=%s reason=%s", peerId, reason );
 	}
@@ -503,6 +603,53 @@ public class CoopManager {
 		}
 		for (int i = 0; i < value.length(); i++) {
 			crc.update( value.charAt( i ) );
+		}
+	}
+
+	private void broadcastTurnOutcome( String actorId, CoopEvent.Kind actionKind, int fromCell, int toCell ) {
+		if (!connected || Dungeon.depth <= 0) {
+			return;
+		}
+		JSONObject payload = new JSONObject();
+		payload.put( "actorId", actorId );
+		payload.put( "action", actionKind == null ? "UNKNOWN" : actionKind.name() );
+		payload.put( "from", fromCell );
+		payload.put( "to", toCell );
+		payload.put( "depth", Dungeon.depth );
+		payload.put( "floorTransitionDepth", Dungeon.depth );
+		RemoteHero remoteHero = remoteHeroesByPeerId.get( actorId );
+		int actorPos = remoteHero != null ? remoteHero.pos : (Dungeon.hero == null ? -1 : Dungeon.hero.pos);
+		payload.put( "actorPos", actorPos );
+		payload.put( "hpDelta", 0 );
+		payload.put( "death", false );
+		realtimeChannel.send( CoopEvent.turnOutcome( playerId, Dungeon.depth, payload.toString() ) );
+	}
+
+	private void applyTurnOutcome( CoopEvent event ) {
+		if (event == null || event.payload == null || event.payload.length() == 0) {
+			return;
+		}
+		try {
+			JSONObject payload = new JSONObject( event.payload );
+			String actorId = payload.optString( "actorId", null );
+			RemoteHero remoteHero = ensureRemoteHero( actorId );
+			if (remoteHero == null) {
+				return;
+			}
+			int actorPos = payload.optInt( "actorPos", remoteHero.pos );
+			if (isCellAvailableForRemote( remoteHero, actorPos )) {
+				Actor.freeCell( remoteHero.pos );
+				remoteHero.snapshotPosition( actorPos );
+				Actor.occupyCell( remoteHero );
+				if (remoteHero.sprite != null) {
+					remoteHero.sprite.place( actorPos );
+				}
+			}
+			if (payload.optBoolean( "death", false )) {
+				despawnRemoteHero( actorId, "turn-outcome-death" );
+			}
+		} catch (Exception ignored) {
+			GLog.w( "[Co-op] Failed to apply TURN_OUTCOME payload from %s", event.actorId );
 		}
 	}
 }

@@ -30,6 +30,8 @@ import com.watabou.noosa.Game;
 import com.watabou.noosa.audio.Music;
 import com.watabou.noosa.audio.Sample;
 import com.watabou.pixeldungeon.multiplayer.CoopRole;
+import com.watabou.pixeldungeon.multiplayer.CoopRuntimeSettings;
+import com.watabou.pixeldungeon.multiplayer.CoopSimulationPolicy;
 import com.watabou.pixeldungeon.scenes.GameScene;
 import com.watabou.pixeldungeon.scenes.PixelScene;
 import com.watabou.pixeldungeon.scenes.TitleScene;
@@ -372,6 +374,22 @@ public class PixelDungeon extends Game {
 			reportException( e );
 			return CoopRole.PLAYER;
 		}
+	}
+
+
+	public static void coopSimulationPolicy( CoopSimulationPolicy policy ) {
+		CoopSimulationPolicy safePolicy = policy == null ? CoopSimulationPolicy.HOST_AUTHORITATIVE : policy;
+		Preferences.INSTANCE.put( Preferences.KEY_COOP_SIMULATION_POLICY, safePolicy.wireName() );
+	}
+
+	public static CoopSimulationPolicy coopSimulationPolicy() {
+		return CoopSimulationPolicy.fromWireName( Preferences.INSTANCE.getString(
+			Preferences.KEY_COOP_SIMULATION_POLICY,
+			CoopSimulationPolicy.HOST_AUTHORITATIVE.wireName() ) );
+	}
+
+	public static CoopRuntimeSettings coopRuntimeSettings() {
+		return new CoopRuntimeSettings( coopSimulationPolicy() );
 	}
 
 	public static void intro( boolean value ) {
