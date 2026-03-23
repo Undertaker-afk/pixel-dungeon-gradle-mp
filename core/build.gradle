@@ -40,4 +40,5 @@ dependencies {
     implementation 'org.ngengine:nostr4j:0.2.5'
     implementation 'io.libp2p:jvm-libp2p:1.2.2-RELEASE'
     implementation 'androidx.multidex:multidex:2.0.1'
+    testImplementation 'junit:junit:4.13.2'
 }

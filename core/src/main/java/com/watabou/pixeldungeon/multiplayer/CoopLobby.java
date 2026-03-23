@@ -8,6 +8,7 @@ public class CoopLobby {
 	public final boolean acceptingPlayers;
 	public final long announcedAtMillis;
 	public final String unlockedClassesCsv;
+	public final PeerEndpoint hostEndpoint;
 
 	public CoopLobby(
 		String roomId,
@@ -17,6 +18,18 @@ public class CoopLobby {
 		boolean acceptingPlayers,
 		long announcedAtMillis,
 		String unlockedClassesCsv ) {
+		this( roomId, hostPeerId, playerCount, maxPlayers, acceptingPlayers, announcedAtMillis, unlockedClassesCsv, null );
+	}
+
+	public CoopLobby(
+		String roomId,
+		String hostPeerId,
+		int playerCount,
+		int maxPlayers,
+		boolean acceptingPlayers,
+		long announcedAtMillis,
+		String unlockedClassesCsv,
+		PeerEndpoint hostEndpoint ) {
 		this.roomId = roomId;
 		this.hostPeerId = hostPeerId;
 		this.playerCount = playerCount;
@@ -24,5 +37,6 @@ public class CoopLobby {
 		this.acceptingPlayers = acceptingPlayers;
 		this.announcedAtMillis = announcedAtMillis;
 		this.unlockedClassesCsv = unlockedClassesCsv;
+		this.hostEndpoint = hostEndpoint;
 	}
 }

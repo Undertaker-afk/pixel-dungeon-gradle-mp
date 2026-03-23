@@ -11,7 +11,7 @@ import com.watabou.pixeldungeon.utils.GLog;
  */
 public class JvmLibp2pRealtimeChannel implements RealtimeChannel {
 
-	private final UdpRealtimeChannel fallback = new UdpRealtimeChannel();
+	private final RealtimeChannel fallback = new NostrRelayRealtimeChannel();
 	private final boolean libp2pAvailable;
 
 	public JvmLibp2pRealtimeChannel() {
@@ -30,12 +30,18 @@ public class JvmLibp2pRealtimeChannel implements RealtimeChannel {
 		if (libp2pAvailable) {
 			GLog.i( "[Co-op] jvm-libp2p detected; using private peer-id signaling only." );
 		}
+		GLog.i( "[Co-op] Realtime fallback transport: %s", fallback.getClass().getSimpleName() );
 		fallback.connect( roomId, playerId, listener );
 	}
 
 	@Override
-	public void addPeer( String peerId ) {
-		fallback.addPeer( peerId );
+	public void addPeer( PeerEndpoint peerEndpoint ) {
+		fallback.addPeer( peerEndpoint );
+	}
+
+	@Override
+	public PeerEndpoint localEndpoint() {
+		return fallback.localEndpoint();
 	}
 
 	@Override
