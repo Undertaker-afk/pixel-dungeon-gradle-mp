@@ -25,8 +25,9 @@ android {
                 'META-INF/versions/9/OSGI-INF/MANIFEST.MF'
             ]
 
-            // alternatively, keep the first found copy:
-            // pickFirsts += ['META-INF/versions/9/OSGI-INF/MANIFEST.MF']
+            pickFirsts += [
+                'META-INF/io.netty.versions.properties'
+            ]
         }
     }
 }
