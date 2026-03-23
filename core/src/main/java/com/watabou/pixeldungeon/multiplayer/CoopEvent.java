@@ -26,7 +26,9 @@ public class CoopEvent {
 		TURN_OUTCOME,
 		DESPAWN,
 		WORLD_DIFF,
-		SNAPSHOT_REQUEST
+		SNAPSHOT_REQUEST,
+		JOIN_REQUEST,
+		JOIN_RESULT
 	}
 
 	public final int version;
@@ -198,5 +200,24 @@ public class CoopEvent {
 		JSONObject payload = new JSONObject();
 		payload.put( "reason", reason == null ? "unspecified" : reason );
 		return of( Kind.SNAPSHOT_REQUEST, actorId, floor, payload );
+	}
+
+	public static CoopEvent joinRequest( String actorId, int floor, String joinKey, String sessionToken, int clientDepth, boolean deadCharacter ) {
+		JSONObject payload = new JSONObject();
+		payload.put( "joinKey", joinKey == null ? "" : joinKey );
+		payload.put( "sessionToken", sessionToken == null ? "" : sessionToken );
+		payload.put( "clientDepth", clientDepth );
+		payload.put( "deadCharacter", deadCharacter );
+		return of( Kind.JOIN_REQUEST, actorId, Math.max( 1, floor ), payload );
+	}
+
+	public static CoopEvent joinResult( String actorId, int floor, String targetPlayerId, boolean accepted, String reason, String sessionToken ) {
+		JSONObject payload = new JSONObject();
+		payload.put( "targetPlayerId", targetPlayerId == null ? "" : targetPlayerId );
+		payload.put( "accepted", accepted );
+		payload.put( "reason", reason == null ? "" : reason );
+		payload.put( "sessionToken", sessionToken == null ? "" : sessionToken );
+		payload.put( "hostDepth", floor );
+		return of( Kind.JOIN_RESULT, actorId, Math.max( 1, floor ), payload );
 	}
 }

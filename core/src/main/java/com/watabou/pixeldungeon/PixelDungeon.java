@@ -17,6 +17,8 @@
  */
 package com.watabou.pixeldungeon;
 
+import java.util.UUID;
+
 import javax.microedition.khronos.opengles.GL10;
 
 import android.annotation.SuppressLint;
@@ -390,6 +392,44 @@ public class PixelDungeon extends Game {
 
 	public static CoopRuntimeSettings coopRuntimeSettings() {
 		return new CoopRuntimeSettings( coopSimulationPolicy() );
+	}
+
+	public static String coopPlayerUuid() {
+		String id = Preferences.INSTANCE.getString( Preferences.KEY_COOP_PLAYER_UUID, "" );
+		if (id == null || id.length() == 0) {
+			id = UUID.randomUUID().toString();
+			Preferences.INSTANCE.put( Preferences.KEY_COOP_PLAYER_UUID, id );
+		}
+		return id;
+	}
+
+	public static void coopSessionToken( String value ) {
+		Preferences.INSTANCE.put( Preferences.KEY_COOP_SESSION_TOKEN, value == null ? "" : value );
+	}
+
+	public static String coopSessionToken() {
+		return Preferences.INSTANCE.getString( Preferences.KEY_COOP_SESSION_TOKEN, "" );
+	}
+
+	public static void coopSessionRoom( String value ) {
+		Preferences.INSTANCE.put( Preferences.KEY_COOP_SESSION_ROOM, value == null ? "" : value );
+	}
+
+	public static String coopSessionRoom() {
+		return Preferences.INSTANCE.getString( Preferences.KEY_COOP_SESSION_ROOM, "" );
+	}
+
+	public static void clearCoopSessionResume() {
+		coopSessionToken( "" );
+		coopSessionRoom( "" );
+	}
+
+	public static boolean canRejoinCoopRoom( String candidateRoom ) {
+		String token = coopSessionToken();
+		String room = coopSessionRoom();
+		return token != null && token.length() > 0
+			&& room != null && room.length() > 0
+			&& (candidateRoom == null || candidateRoom.length() == 0 || room.equals( candidateRoom ));
 	}
 
 	public static void intro( boolean value ) {

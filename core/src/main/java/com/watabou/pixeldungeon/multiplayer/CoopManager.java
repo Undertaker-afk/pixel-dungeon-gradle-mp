@@ -11,6 +11,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.zip.CRC32;
 
 import org.json.JSONArray;
@@ -57,6 +58,8 @@ public class CoopManager {
 	private String playerId;
 	private final Set<String> peerIds = new HashSet<String>();
 	private final Set<String> bannedPeerIds = new HashSet<String>();
+	private final Map<String, String> sessionTokenByPeerId = new HashMap<String, String>();
+	private final Set<String> deadPeerIds = new HashSet<String>();
 	private final Object levelSyncLock = new Object();
 	private final Map<Integer, Long> levelSeedByDepth = new HashMap<Integer, Long>();
 	private final Map<Integer, String> levelHashByDepth = new HashMap<Integer, String>();
@@ -69,6 +72,8 @@ public class CoopManager {
 	private final Map<String, Integer> localMobActorIdByStableId = new HashMap<String, Integer>();
 	private final Map<String, Integer> remoteHeapCellByStableId = new HashMap<String, Integer>();
 	private String authoritativePeerId;
+	private String joinKey;
+	private String joinStatus = "Idle";
 	private long sessionSeedBase;
 	private long lastWorldDiffSentAtMs;
 	private int turnsSinceFullStateSync;
@@ -83,9 +88,15 @@ public class CoopManager {
 		}
 
 		roomId = configuredRoomId;
-		playerId = "hero-" + System.currentTimeMillis();
+		playerId = PixelDungeon.coopPlayerUuid();
 		authoritativePeerId = isHost() ? playerId : null;
+		joinKey = isHost() ? randomToken() : "";
+		joinStatus = isHost() ? "Hosting - waiting for players" : "Connecting";
 		sessionSeedBase = System.currentTimeMillis() ^ (((long)roomId.hashCode()) << 21);
+		if (isHost()) {
+			sessionTokenByPeerId.put( playerId, randomToken() );
+			PixelDungeon.clearCoopSessionResume();
+		}
 		if (isHost()) {
 			PixelDungeon.coopSimulationPolicy( CoopSimulationPolicy.HOST_AUTHORITATIVE );
 			GLog.i( "[Co-op] DM host '%s' running authoritative simulation.", playerId );
@@ -108,8 +119,12 @@ public class CoopManager {
 				realtimeChannel.addPeer( peerEndpoint );
 				if (peerIds.add( peerId )) {
 					GLog.i( "[Co-op] peer connected: %s", peerId );
-					ensureRemoteHero( peerId );
-					resendLevelSyncToLateJoiner( peerId );
+					if (isHost()) {
+						ensureRemoteHero( peerId );
+						resendLevelSyncToLateJoiner( peerId );
+					} else {
+						sendJoinRequest( peerEndpoint == null ? null : peerEndpoint.peerId );
+					}
 				}
 			}
 		} );
@@ -129,6 +144,8 @@ public class CoopManager {
 		clearRemoteHeroes();
 		peerIds.clear();
 		bannedPeerIds.clear();
+		sessionTokenByPeerId.clear();
+		deadPeerIds.clear();
 		intentQueueByPeerId.clear();
 		lastAcceptedIntentMsByPeerId.clear();
 		inventoryByPeerId.clear();
@@ -137,6 +154,8 @@ public class CoopManager {
 		localMobActorIdByStableId.clear();
 		remoteHeapCellByStableId.clear();
 		authoritativePeerId = null;
+		joinKey = "";
+		joinStatus = "Offline";
 		lastWorldDiffSentAtMs = 0L;
 		turnsSinceFullStateSync = 0;
 		turnsSinceHashBroadcast = 0;
@@ -151,14 +170,48 @@ public class CoopManager {
 		return peerDiscovery.knownLobbies();
 	}
 
+	public String reconnectStatus() {
+		if (connected) {
+			return joinStatus;
+		}
+		if (PixelDungeon.canRejoinCoopRoom( PixelDungeon.coopRoom() )) {
+			return "Saved resume token for room " + PixelDungeon.coopSessionRoom();
+		}
+		return "No resumable session token";
+	}
+
+	public boolean canAttemptRejoin() {
+		return PixelDungeon.canRejoinCoopRoom( PixelDungeon.coopRoom() );
+	}
+
+	public void clearRejoinState() {
+		PixelDungeon.clearCoopSessionResume();
+		joinStatus = "Resume token cleared";
+	}
+
+	public boolean rejoinLastSession() {
+		if (!PixelDungeon.canRejoinCoopRoom( null )) {
+			joinStatus = "No resumable session token";
+			return false;
+		}
+		PixelDungeon.coopEnabled( true );
+		PixelDungeon.coopRoom( PixelDungeon.coopSessionRoom() );
+		joinStatus = "Rejoin armed for room " + PixelDungeon.coopSessionRoom();
+		return true;
+	}
+
 	public void kickAllPlayers() {
 		bannedPeerIds.addAll( peerIds );
+		for (String peerId : peerIds) {
+			sessionTokenByPeerId.remove( peerId );
+		}
 		peerIds.clear();
 		GLog.w( "[Co-op] All connected players were kicked from this local session." );
 	}
 
 	public void clearBans() {
 		bannedPeerIds.clear();
+		deadPeerIds.clear();
 		GLog.i( "[Co-op] Player bans cleared." );
 	}
 
@@ -174,7 +227,10 @@ public class CoopManager {
 			accepting,
 			System.currentTimeMillis(),
 			enabledClassesCsv(),
-			realtimeChannel.localEndpoint() );
+			realtimeChannel.localEndpoint(),
+			joinKey,
+			true,
+			Math.max( 0, Dungeon.depth ) );
 	}
 
 	private String enabledClassesCsv() {
@@ -356,7 +412,17 @@ public class CoopManager {
 			if (!isHost()) {
 				return;
 			}
-			sendFullStateSync( "snapshot-request:" + event.actorId + ":" + event.payload.optString( "reason", "unspecified" ) );
+			sendFullStateSync( "snapshot-request:" + event.actorId + ":" + event.payload.optString( "reason", "unspecified" ), event.actorId, event.actorId );
+			return;
+		}
+		if (event.kind == CoopEvent.Kind.JOIN_REQUEST) {
+			if (isHost()) {
+				handleJoinRequest( event );
+			}
+			return;
+		}
+		if (event.kind == CoopEvent.Kind.JOIN_RESULT) {
+			handleJoinResult( event );
 			return;
 		}
 		if (event.kind == CoopEvent.Kind.DESPAWN) {
@@ -739,6 +805,120 @@ public class CoopManager {
 		GLog.i( "[Co-op] Resent LEVEL_SYNC to peer=%s depth=%d seed=%d", peerId, Integer.valueOf( Dungeon.depth ), seed );
 	}
 
+	private void sendJoinRequest( String hostPeerId ) {
+		if (!connected || isHost()) {
+			return;
+		}
+		String sessionToken = "";
+		if (roomId != null && roomId.equals( PixelDungeon.coopSessionRoom() )) {
+			sessionToken = PixelDungeon.coopSessionToken();
+		}
+		CoopLobby lobby = lobbyByHost( hostPeerId );
+		String requestedJoinKey = lobby == null ? "" : lobby.joinKey;
+		realtimeChannel.send( CoopEvent.joinRequest(
+			playerId,
+			Math.max( 1, Dungeon.depth <= 0 ? 1 : Dungeon.depth ),
+			requestedJoinKey,
+			sessionToken,
+			Dungeon.depth,
+			Dungeon.hero != null && Dungeon.hero.HP <= 0 ) );
+		joinStatus = sessionToken.length() > 0 ? "Rejoin requested" : "Join requested";
+	}
+
+	private CoopLobby lobbyByHost( String hostPeerId ) {
+		if (hostPeerId == null || hostPeerId.length() == 0) {
+			return null;
+		}
+		for (CoopLobby lobby : peerDiscovery.knownLobbies()) {
+			if (hostPeerId.equals( lobby.hostPeerId ) && (roomId == null || roomId.equals( lobby.roomId ))) {
+				return lobby;
+			}
+		}
+		return null;
+	}
+
+	private void handleJoinRequest( CoopEvent event ) {
+		if (event == null || event.payload == null || event.actorId == null) {
+			return;
+		}
+		String requester = event.actorId;
+		if (bannedPeerIds.contains( requester )) {
+			sendJoinResult( requester, false, "banned", "" );
+			return;
+		}
+		if (deadPeerIds.contains( requester ) || event.payload.optBoolean( "deadCharacter", false )) {
+			sendJoinResult( requester, false, "dead-character-state", "" );
+			return;
+		}
+		int clientDepth = event.payload.optInt( "clientDepth", Dungeon.depth );
+		if (Dungeon.depth > 0 && clientDepth > 0 && clientDepth != Dungeon.depth) {
+			sendJoinResult( requester, false, "floor-mismatch", "" );
+			return;
+		}
+		String presentedToken = event.payload.optString( "sessionToken", "" );
+		String activeToken = sessionTokenByPeerId.get( requester );
+		if (activeToken != null && activeToken.length() > 0 && !activeToken.equals( presentedToken )) {
+			sendJoinResult( requester, false, "stale-token", "" );
+			return;
+		}
+		if (activeToken == null || activeToken.length() == 0) {
+			String presentedJoinKey = event.payload.optString( "joinKey", "" );
+			if (joinKey != null && joinKey.length() > 0 && !joinKey.equals( presentedJoinKey )) {
+				sendJoinResult( requester, false, "stale-token", "" );
+				return;
+			}
+			activeToken = randomToken();
+			sessionTokenByPeerId.put( requester, activeToken );
+		}
+		if (remoteHeroesByPeerId.containsKey( requester ) && presentedToken.length() == 0) {
+			sendJoinResult( requester, false, "duplicate-active-id", "" );
+			return;
+		}
+		ensureRemoteHero( requester );
+		sendJoinResult( requester, true, presentedToken.length() > 0 ? "rejoined" : "joined", activeToken );
+		sendFullStateSync( "rejoin:" + requester, requester, requester );
+		resendLevelSyncToLateJoiner( requester );
+	}
+
+	private void sendJoinResult( String targetPlayerId, boolean accepted, String reason, String token ) {
+		realtimeChannel.send( CoopEvent.joinResult(
+			playerId,
+			Math.max( 1, Dungeon.depth <= 0 ? 1 : Dungeon.depth ),
+			targetPlayerId,
+			accepted,
+			reason,
+			token ) );
+	}
+
+	private void handleJoinResult( CoopEvent event ) {
+		if (event == null || event.payload == null) {
+			return;
+		}
+		String targetPlayerId = event.payload.optString( "targetPlayerId", "" );
+		if (!playerId.equals( targetPlayerId )) {
+			return;
+		}
+		boolean accepted = event.payload.optBoolean( "accepted", false );
+		String reason = event.payload.optString( "reason", "unspecified" );
+		if (!accepted) {
+			joinStatus = "Join rejected: " + reason;
+			if ("stale-token".equals( reason )) {
+				PixelDungeon.clearCoopSessionResume();
+			}
+			return;
+		}
+		String token = event.payload.optString( "sessionToken", "" );
+		if (token.length() > 0) {
+			PixelDungeon.coopSessionToken( token );
+			PixelDungeon.coopSessionRoom( roomId );
+		}
+		joinStatus = "Connected (" + reason + ")";
+	}
+
+	private String randomToken() {
+		return UUID.randomUUID().toString().replace( "-", "" );
+	}
+
 	private String computeLevelHash( Level level ) {
 		CRC32 crc = new CRC32();
 		updateInt( crc, Dungeon.depth );
@@ -853,6 +1033,7 @@ public class CoopManager {
 				}
 			}
 			if (payload.optBoolean( "death", false )) {
+				deadPeerIds.add( actorId );
 				despawnRemoteHero( actorId, "turn-outcome-death" );
 			}
 		} catch (Exception ignored) {
@@ -865,7 +1046,7 @@ public class CoopManager {
 		turnsSinceFullStateSync++;
 		turnsSinceHashBroadcast++;
 		if (turnsSinceFullStateSync >= FULL_SYNC_INTERVAL_TURNS) {
-			sendFullStateSync( "periodic" );
+			sendFullStateSync( "periodic", null, null );
 			turnsSinceFullStateSync = 0;
 		}
 		if (turnsSinceHashBroadcast >= HASH_INTERVAL_TURNS) {
@@ -881,18 +1062,21 @@ public class CoopManager {
 		realtimeChannel.send( CoopEvent.worldDiff( playerId, Dungeon.depth, buildWorldDiffPayload() ) );
 	}
 
-	private void sendFullStateSync( String reason ) {
+	private void sendFullStateSync( String reason, String targetPlayerId, String actorRebindId ) {
 		if (!connected || Dungeon.depth <= 0 || Dungeon.level == null) {
 			return;
 		}
-		JSONObject state = buildFullStatePayload();
+		JSONObject state = buildFullStatePayload( actorRebindId );
 		state.put( "reason", reason == null ? "unspecified" : reason );
+		if (targetPlayerId != null && targetPlayerId.length() > 0) {
+			state.put( "targetPlayerId", targetPlayerId );
+		}
 		realtimeChannel.send( CoopEvent.fullStateSync( playerId, Dungeon.depth, state ) );
 	}
 
-	private JSONObject buildFullStatePayload() {
+	private JSONObject buildFullStatePayload( String actorRebindId ) {
 		JSONObject state = new JSONObject();
-		state.put( "actorId", playerId );
+		state.put( "actorId", actorRebindId == null || actorRebindId.length() == 0 ? playerId : actorRebindId );
 		state.put( "depth", Dungeon.depth );
 		state.put( "heroPos", Dungeon.hero == null ? -1 : Dungeon.hero.pos );
 		state.put( "heroHp", Dungeon.hero == null ? 0 : Dungeon.hero.HP );
@@ -1434,11 +1618,29 @@ public class CoopManager {
 		if (state == null) {
 			return;
 		}
+		String targetPlayerId = state.optString( "targetPlayerId", "" );
+		if (targetPlayerId.length() > 0 && !targetPlayerId.equals( playerId )) {
+			return;
+		}
+		if (Dungeon.depth > 0 && state.optInt( "depth", Dungeon.depth ) != Dungeon.depth) {
+			joinStatus = "Join rejected: floor-mismatch";
+			return;
+		}
+		if (state.optInt( "heroHp", 1 ) <= 0) {
+			joinStatus = "Join rejected: dead-character-state";
+			return;
+		}
+		String actorRebindId = state.optString( "actorId", "" );
+		if (actorRebindId.length() > 0 && !actorRebindId.equals( playerId )) {
+			joinStatus = "Join rejected: duplicate-active-id";
+			return;
+		}
 		int heroPos = state.optInt( "heroPos", state.optInt( "actorPos", -1 ) );
 		snapLocalHeroToAuthoritativePosition( heroPos );
 		if (Dungeon.hero != null) {
 			Dungeon.hero.HP = state.optInt( "heroHp", Dungeon.hero.HP );
 		}
+		joinStatus = "Rejoin synchronized";
 		JSONArray terrain = state.optJSONArray( "terrain" );
 		if (terrain != null && Dungeon.level != null && Dungeon.level.map != null && terrain.length() == Dungeon.level.map.length) {
 			for (int i = 0; i < terrain.length(); i++) {
