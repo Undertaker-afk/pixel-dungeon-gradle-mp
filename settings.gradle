@@ -1,2 +1,1 @@
 include ':core', ':PD-classes'
-android.useAndroidX=true
