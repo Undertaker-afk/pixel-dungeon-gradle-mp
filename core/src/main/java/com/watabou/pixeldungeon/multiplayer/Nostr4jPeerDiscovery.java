@@ -135,14 +135,18 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 		if (socket == null || !socket.isOpen()) {
 			return;
 		}
-		JSONArray req = new JSONArray();
-		req.put( "REQ" );
-		req.put( "pd-coop-" + roomId );
-		JSONObject filter = new JSONObject();
-		filter.put( "kinds", new JSONArray().put( DISCOVERY_KIND ) );
-		filter.put( "#t", new JSONArray().put( "pd-coop:" + roomId ) );
-		req.put( filter );
-		socket.send( req.toString() );
+		try {
+			JSONArray req = new JSONArray();
+			req.put( "REQ" );
+			req.put( "pd-coop-" + roomId );
+			JSONObject filter = new JSONObject();
+			filter.put( "kinds", new JSONArray().put( DISCOVERY_KIND ) );
+			filter.put( "#t", new JSONArray().put( "pd-coop:" + roomId ) );
+			req.put( filter );
+			socket.send( req.toString() );
+		} catch (JSONException e) {
+			PixelDungeon.reportException( e );
+		}
 	}
 
 	private void handleMessage( String message ) {
