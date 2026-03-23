@@ -29,6 +29,7 @@ import com.watabou.pixeldungeon.Badges;
 import com.watabou.pixeldungeon.Bones;
 import com.watabou.pixeldungeon.Dungeon;
 import com.watabou.pixeldungeon.GamesInProgress;
+import com.watabou.pixeldungeon.PixelDungeon;
 import com.watabou.pixeldungeon.ResultDescriptions;
 import com.watabou.pixeldungeon.actors.Actor;
 import com.watabou.pixeldungeon.actors.Char;
@@ -371,6 +372,11 @@ public class Hero extends Char {
 	public boolean act() {
 		
 		super.act();
+		if (PixelDungeon.coopEnabled()) {
+			CoopManager.instance().ensureConnected( PixelDungeon.coopRoom() );
+		} else {
+			CoopManager.instance().disconnect();
+		}
 		
 		if (paralysed) {
 			
@@ -1224,7 +1230,9 @@ public class Hero extends Char {
 	
 	@Override
 	public void move( int step ) {
+		int fromCell = pos;
 		super.move( step );
+		CoopManager.instance().publishMove( fromCell, pos );
 		
 		if (!flying) {
 			
@@ -1250,6 +1258,9 @@ public class Hero extends Char {
 		
 		AttackIndicator.target( enemy );
 		
+		if (enemy != null) {
+			CoopManager.instance().publishAttack( pos, enemy.pos );
+		}
 		attack( enemy );
 		curAction = null;
 		

@@ -2,6 +2,20 @@ This repository contains the original Pixel Dungeon code, adapted to work with m
 
 Look below for compilation instructions
 
+
+## Experimental Co-op Networking (Nostr relay + realtime p2p events)
+
+This branch now includes a **working network path** for co-op synchronization:
+
+- **Peer discovery over Nostr relay:** `Nostr4jPeerDiscovery` opens a websocket to `wss://nos.lol`, subscribes to room-tagged events, and publishes peer endpoint announcements (room tag: `pd-coop:<roomId>`).
+- **Realtime direct channel:** `UdpRealtimeChannel` opens a local UDP socket, registers discovered peers, and broadcasts move/attack events directly to peers for low-latency updates.
+- **Gameplay event hooks:** hero movement and attack actions are pushed into `CoopManager` so event replication runs continuously while enabled.
+
+Enable/disable through **Start Scene -> Co-op**.
+
+> Note: The requested `tcheeric/nostr-java` library currently targets Java 21+, while this Android app keeps legacy API compatibility. The relay protocol is therefore implemented directly over websocket JSON frames for Android runtime compatibility.
+> NodeJS bindings were dropped in favor of a native JVM libp2p bridge point (`JvmLibp2pRealtimeChannel`) that probes `io.libp2p` classes and is ready for direct stream adapter wiring.
+
 # Pixel Dungeon
 
 Traditional roguelike game with pixel-art graphics and simple interface.

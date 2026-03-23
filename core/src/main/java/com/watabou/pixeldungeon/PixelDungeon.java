@@ -343,6 +343,22 @@ public class PixelDungeon extends Game {
 		return Preferences.INSTANCE.getInt( Preferences.KEY_CHALLENGES, 0 );
 	}
 	
+
+	public static void coopEnabled( boolean value ) {
+		Preferences.INSTANCE.put( Preferences.KEY_COOP_ENABLED, value );
+	}
+
+	public static boolean coopEnabled() {
+		return Preferences.INSTANCE.getBoolean( Preferences.KEY_COOP_ENABLED, false );
+	}
+
+	public static void coopRoom( String value ) {
+		Preferences.INSTANCE.put( Preferences.KEY_COOP_ROOM, value );
+	}
+
+	public static String coopRoom() {
+		return Preferences.INSTANCE.getString( Preferences.KEY_COOP_ROOM, "public-alpha" );
+	}
 	public static void intro( boolean value ) {
 		Preferences.INSTANCE.put( Preferences.KEY_INTRO, value );
 	}
