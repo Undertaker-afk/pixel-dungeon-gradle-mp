@@ -353,6 +353,7 @@ public class GameScene extends PixelScene {
 		water.offset( 0, -5 * Game.elapsed );
 		
 		Actor.process();
+		CoopManager.instance().onSimulationTick();
 		
 		boolean localInputReady = CoopManager.instance().isLocalInputReady();
 		if (localInputReady && !Dungeon.hero.paralysed) {
