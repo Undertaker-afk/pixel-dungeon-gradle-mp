@@ -16,6 +16,12 @@ public final class CoopEventCodec {
 		json.put( "depth", event.depth );
 		json.put( "from", event.fromCell );
 		json.put( "to", event.toCell );
+		if (event.levelSeed != null) {
+			json.put( "levelSeed", event.levelSeed.longValue() );
+		}
+		if (event.levelHash != null) {
+			json.put( "levelHash", event.levelHash );
+		}
 		json.put( "sentAtMs", event.sentAtMs );
 		return json.toString();
 	}
@@ -26,8 +32,10 @@ public final class CoopEventCodec {
 			CoopEvent.Kind.valueOf( json.getString( "kind" ) ),
 			json.getString( "actor" ),
 			json.getInt( "depth" ),
-			json.getInt( "from" ),
-			json.getInt( "to" ),
+			json.optInt( "from", -1 ),
+			json.optInt( "to", -1 ),
+			json.has( "levelSeed" ) ? Long.valueOf( json.getLong( "levelSeed" ) ) : null,
+			json.optString( "levelHash", null ),
 			json.optLong( "sentAtMs", System.currentTimeMillis() ) );
 	}
 

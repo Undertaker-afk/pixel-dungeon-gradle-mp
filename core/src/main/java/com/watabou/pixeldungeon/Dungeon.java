@@ -43,6 +43,7 @@ import com.watabou.pixeldungeon.items.potions.Potion;
 import com.watabou.pixeldungeon.items.rings.Ring;
 import com.watabou.pixeldungeon.items.scrolls.Scroll;
 import com.watabou.pixeldungeon.items.wands.Wand;
+import com.watabou.pixeldungeon.multiplayer.CoopManager;
 import com.watabou.pixeldungeon.levels.CavesBossLevel;
 import com.watabou.pixeldungeon.levels.CavesLevel;
 import com.watabou.pixeldungeon.levels.CityBossLevel;
@@ -221,7 +222,9 @@ public class Dungeon {
 			Statistics.deepestFloor--;
 		}
 		
+		CoopManager.instance().prepareLevelSeed( depth );
 		level.create();
+		CoopManager.instance().onLevelCreated( depth, level );
 		
 		Statistics.qualifiedForNoKilling = !bossLevel();
 		
