@@ -47,11 +47,12 @@ public class CoopManager {
 
 		peerDiscovery.start( roomId, playerId, new PeerDiscovery.Listener() {
 			@Override
-				public void onPeer( String peerId ) {
-					if (peerId == null || peerId.length() == 0 || playerId.equals( peerId ) || bannedPeerIds.contains( peerId )) {
-						return;
-					}
-					realtimeChannel.addPeer( peerId );
+			public void onPeer( PeerEndpoint peerEndpoint ) {
+				String peerId = peerEndpoint == null ? null : peerEndpoint.peerId;
+				if (peerId == null || peerId.length() == 0 || playerId.equals( peerId ) || bannedPeerIds.contains( peerId )) {
+					return;
+				}
+				realtimeChannel.addPeer( peerEndpoint );
 				if (peerIds.add( peerId )) {
 					GLog.i( "[Co-op] peer connected: %s", peerId );
 				}
@@ -100,7 +101,8 @@ public class CoopManager {
 			maxPlayers,
 			accepting,
 			System.currentTimeMillis(),
-			enabledClassesCsv() );
+			enabledClassesCsv(),
+			realtimeChannel.localEndpoint() );
 	}
 
 	private String enabledClassesCsv() {

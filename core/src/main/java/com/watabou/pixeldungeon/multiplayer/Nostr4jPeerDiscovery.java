@@ -89,6 +89,13 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 			payload.put( "maxPlayers", lobby == null ? 6 : lobby.maxPlayers );
 			payload.put( "acceptingPlayers", lobby == null ? true : lobby.acceptingPlayers );
 			payload.put( "unlockedClasses", lobby == null ? "WARRIOR" : lobby.unlockedClassesCsv );
+			PeerEndpoint endpoint = lobby == null ? null : lobby.hostEndpoint;
+			payload.put( "relayRoutingKey", endpoint == null ? playerId : endpoint.relayRoutingKey );
+			payload.put( "relayUrl", endpoint == null ? RELAY_URL : endpoint.relayUrl );
+			if (endpoint != null && endpoint.hasUdpEndpoint()) {
+				payload.put( "udpHost", endpoint.udpHost );
+				payload.put( "udpPort", endpoint.udpPort );
+			}
 			payload.put( "state", "looking-for-party" );
 			event.put( "content", payload.toString() );
 
@@ -166,6 +173,13 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 			JSONObject payload = new JSONObject( event.optString( "content", "{}" ) );
 			String discoveredPeerId = payload.optString( "peerId", pubkey );
 			String discoveredRoomId = payload.optString( "roomId", roomId );
+			PeerEndpoint peerEndpoint = new PeerEndpoint(
+				discoveredPeerId,
+				payload.optString( "udpHost", null ),
+				payload.optInt( "udpPort", 0 ),
+				payload.optString( "relayRoutingKey", discoveredPeerId ),
+				payload.optString( "relayUrl", RELAY_URL ) );
+
 			CoopLobby lobby = new CoopLobby(
 				discoveredRoomId,
 				discoveredPeerId,
@@ -173,11 +187,12 @@ public class Nostr4jPeerDiscovery implements PeerDiscovery {
 				Math.max( 1, Math.min( 6, payload.optInt( "maxPlayers", 6 ) ) ),
 				payload.optBoolean( "acceptingPlayers", true ),
 				System.currentTimeMillis(),
-				payload.optString( "unlockedClasses", "WARRIOR" ) );
+				payload.optString( "unlockedClasses", "WARRIOR" ),
+				peerEndpoint );
 			lobbies.put( discoveredRoomId + ":" + discoveredPeerId, lobby );
-			listener.onPeer( discoveredPeerId );
+			listener.onPeer( peerEndpoint );
 		} catch (JSONException e) {
-				PixelDungeon.reportException( e );
+			PixelDungeon.reportException( e );
 		}
 	}
 }

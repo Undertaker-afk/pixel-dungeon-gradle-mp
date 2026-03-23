@@ -5,7 +5,7 @@ import java.util.List;
 public interface PeerDiscovery {
 
 	interface Listener {
-		void onPeer( String peerId );
+		void onPeer( PeerEndpoint peerEndpoint );
 	}
 
 	void start( String roomId, String playerId, Listener listener );

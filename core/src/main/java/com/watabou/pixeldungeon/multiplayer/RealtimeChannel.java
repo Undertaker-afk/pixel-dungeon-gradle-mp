@@ -8,7 +8,9 @@ public interface RealtimeChannel {
 
 	void connect( String roomId, String playerId, Listener listener );
 
-	void addPeer( String peerId );
+	void addPeer( PeerEndpoint peerEndpoint );
+
+	PeerEndpoint localEndpoint();
 
 	void send( CoopEvent event );
 
