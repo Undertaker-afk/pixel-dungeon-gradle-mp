@@ -15,6 +15,8 @@ Enable/disable through **Start Scene -> Co-op**.
 
 > Note: The requested `tcheeric/nostr-java` library currently targets Java 21+, while this Android app keeps legacy API compatibility. The relay protocol is therefore implemented directly over websocket JSON frames for Android runtime compatibility.
 > NodeJS bindings were dropped in favor of a native JVM libp2p bridge point (`JvmLibp2pRealtimeChannel`) that probes `io.libp2p` classes and is ready for direct stream adapter wiring.
+>
+> many more features soon
 
 # Pixel Dungeon
 
